@@ -205,6 +205,19 @@ export default function Page() {
         <button disabled={Boolean(busy) || !selected} onClick={runReview} className="btn-review mt-4">
           {busy || "Run Visual Review"}
         </button>
+        {txHash && (
+          <div className="mt-3 hash-strip">
+            review tx:{" "}
+            <a
+              href={`${GENLAYER_STUDIONET.explorerUrl}/tx/${txHash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-cyan2 underline"
+            >
+              {txHash}
+            </a>
+          </div>
+        )}
         {error && <p className="mt-3 text-xs text-magma font-mono whitespace-pre-wrap">{error}</p>}
       </div>
 

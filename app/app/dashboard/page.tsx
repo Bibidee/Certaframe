@@ -1,13 +1,30 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useAccount } from "wagmi";
 import { listContracts, listProofs } from "@/src/lib/storage";
 import { CONTRACT_MISSING_MESSAGE, isContractConfigured } from "@/src/lib/genlayer/config";
 
 export default function Page() {
+  const { address } = useAccount();
   const [contracts, setContracts] = useState<any[]>([]);
   const [proofs, setProofs] = useState<any[]>([]);
   useEffect(() => { listContracts().then(setContracts); listProofs().then(setProofs); }, []);
+
+  // Awaiting *your* review (you are the client of a contract whose latest proof is unreviewed).
+  const awaitingMine = address
+    ? proofs.filter((p) => {
+        if (p.status !== "PROOF_SUBMITTED" && p.status !== "UNDER_REVIEW") return false;
+        if (p.verdict) return false;
+        const c = contracts.find((x) => x.id === p.contractId);
+        return c?.client && c.client.toLowerCase() === address.toLowerCase();
+      })
+    : [];
+
+  // Worker needs to resubmit on contracts where revision was requested.
+  const revisionMine = address
+    ? contracts.filter((c) => c.status === "REVISION_REQUESTED" && c.worker?.toLowerCase() === address.toLowerCase())
+    : [];
 
   const active = contracts.filter((c) => c.status === "ACTIVE").length;
   const awaiting = proofs.filter((p) => p.status === "PROOF_SUBMITTED").length;
@@ -31,6 +48,34 @@ export default function Page() {
       {!isContractConfigured() && (
         <div className="glass-panel border-amber2/40 mb-6 whitespace-pre-line text-sm text-bone">
           {CONTRACT_MISSING_MESSAGE}
+        </div>
+      )}
+
+      {awaitingMine.length > 0 && (
+        <div className="glass-panel border-cyan2/60 mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <span className="section-label">Inbox</span>
+            <p className="text-sm text-optic mt-1">
+              {awaitingMine.length} proof{awaitingMine.length > 1 ? "s" : ""} awaiting your review.
+            </p>
+          </div>
+          <Link href={`/app/contracts/${awaitingMine[0].contractId}/review`} className="btn-review">
+            Open Review
+          </Link>
+        </div>
+      )}
+
+      {revisionMine.length > 0 && (
+        <div className="glass-panel border-amber2/60 mb-6 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <span className="section-label" style={{ color: "var(--amber2)" }}>Inbox</span>
+            <p className="text-sm text-optic mt-1">
+              {revisionMine.length} contract{revisionMine.length > 1 ? "s" : ""} awaiting your revised proof.
+            </p>
+          </div>
+          <Link href={`/app/contracts/${revisionMine[0].id}/submit`} className="btn-seal">
+            Resubmit Proof
+          </Link>
         </div>
       )}
 
