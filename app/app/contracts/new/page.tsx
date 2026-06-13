@@ -100,8 +100,7 @@ export default function Page() {
           <textarea className="inp" rows={3} required value={form.description} onChange={(e) => set("description", e.target.value)} />
         </Field>
         <Field label="Acceptance criteria (one per line)">
-          <textarea className="inp" rows={5} required value={form.criteria} onChange={(e) => set("criteria", e.target.value)}
-            placeholder={"Same wall visible in before and after\nComplete white paint coverage\nNo visible large cracks"} />
+          <textarea className="inp" rows={5} required value={form.criteria} onChange={(e) => set("criteria", e.target.value)} />
         </Field>
         <div className="grid grid-cols-3 gap-3">
           <Toggle label="Before required" v={form.beforeRequired} on={(v) => set("beforeRequired", v)} />
