@@ -30,7 +30,7 @@ export default function Page() {
   const awaiting = proofs.filter((p) => p.status === "PROOF_SUBMITTED").length;
   const accepted = proofs.filter((p) => p.verdict?.outcome === "ACCEPT").length;
   const revision = proofs.filter((p) => p.verdict?.outcome === "REQUEST_REVISION").length;
-  const escalations = proofs.filter((p) => p.verdict?.outcome === "ESCALATE_TO_HUMAN").length;
+  const disputes = proofs.filter((p) => p.status === "DISPUTED" || Boolean(p.disputeId)).length;
   const avgConf = proofs.length
     ? (proofs.reduce((s, p) => s + (p.verdict?.confidence || 0), 0) / proofs.filter((p) => p.verdict).length || 0)
     : 0;
@@ -84,7 +84,7 @@ export default function Page() {
         <Stat label="Awaiting Review" value={awaiting} />
         <Stat label="Accepted" value={accepted} color="var(--lime2)" />
         <Stat label="Revisions" value={revision} color="var(--amber2)" />
-        <Stat label="Escalations" value={escalations} color="var(--uv)" />
+        <Stat label="Disputes" value={disputes} color="var(--magma)" />
         <Stat label="Avg Confidence" value={`${(avgConf * 100).toFixed(0)}%`} color="var(--cyan2)" />
       </div>
 
