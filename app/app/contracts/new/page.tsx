@@ -141,9 +141,32 @@ function Field({ label, children }: any) {
 }
 function Toggle({ label, v, on }: { label: string; v: boolean; on: (b: boolean) => void }) {
   return (
-    <button type="button" onClick={() => on(!v)}
-      className={`p-3 border text-xs font-mono uppercase tracking-widest text-left ${v ? "border-lime2 text-lime2" : "border-silver/30 text-silver"}`}>
-      <div>{label}</div><div className="mt-1 font-display text-xl">{v ? "YES" : "NO"}</div>
+    <button
+      type="button"
+      role="switch"
+      aria-checked={v}
+      onClick={() => on(!v)}
+      className={`p-3 border text-xs font-mono uppercase tracking-widest text-left transition-colors ${
+        v ? "border-lime2 bg-lime2/10" : "border-silver/30 bg-transparent"
+      }`}
+    >
+      <div className={v ? "text-lime2" : "text-silver"}>{label}</div>
+      <div className="mt-2 flex items-center gap-2">
+        <span
+          className={`inline-flex h-5 w-10 items-center rounded-full px-0.5 ${
+            v ? "bg-lime2" : "bg-silver/30"
+          }`}
+        >
+          <span
+            className={`h-4 w-4 rounded-full bg-carbon transition-transform ${
+              v ? "translate-x-5" : "translate-x-0"
+            }`}
+          />
+        </span>
+        <span className={`font-display text-lg ${v ? "text-lime2" : "text-silver/60"}`}>
+          {v ? "ON" : "OFF"}
+        </span>
+      </div>
     </button>
   );
 }
