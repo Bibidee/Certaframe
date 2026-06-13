@@ -29,8 +29,10 @@ export default function Page() {
   useEffect(() => { refresh(); }, [id]);
 
   const isClient = address && c?.client && address.toLowerCase() === c.client.toLowerCase();
+  const isWorker = address && c?.worker && address.toLowerCase() === c.worker.toLowerCase();
   const isAccepted = p?.uiStatus === "MILESTONE_CONFIRMED" || c?.status === "ACCEPTED";
   const isDisputed = p?.status === "DISPUTED" || c?.status === "DISPUTED";
+  const needsRevision = c?.status === "REVISION_REQUESTED" || p?.uiStatus === "REVISION_REQUESTED";
 
   async function confirmMilestone() {
     if (!isClient) return alert("Only the client wallet can confirm the milestone. Switch to the contract creator's wallet.");
@@ -119,6 +121,21 @@ export default function Page() {
           )}
         </div>
       </div>
+
+      {needsRevision && isWorker && c?.id && (
+        <div className="glass-panel border-amber2/50">
+          <span className="section-label" style={{ color: "var(--amber2)" }}>Revision Requested</span>
+          {p?.revisionReason && (
+            <p className="text-sm text-bone mt-2 leading-relaxed whitespace-pre-wrap">
+              <span className="font-mono text-xs text-silver">CLIENT NOTE:</span> {p.revisionReason}
+            </p>
+          )}
+          <p className="text-xs text-silver mt-2">
+            Submit a fresh proof packet that addresses the revision. The current proof will be marked SUPERSEDED on-chain.
+          </p>
+          <Link href={`/app/contracts/${c.id}/submit`} className="btn-seal mt-3 inline-block">Submit New Proof</Link>
+        </div>
+      )}
 
       {p.verdict ? (
         <VerdictLens

@@ -11,22 +11,26 @@ import { isContractConfigured, GENLAYER_STUDIONET } from "@/src/lib/genlayer/con
 
 function extractVerdictFromReceipt(receipt: any): any | null {
   if (!receipt) return null;
-  const candidates: any[] = [];
-  const cd = receipt.consensus_data;
-  const lr = cd?.leader_receipt;
-  const leaders = Array.isArray(lr) ? lr : lr ? [lr] : [];
-  for (const l of leaders) {
-    if (l?.result) candidates.push(l.result);
-    if (l?.returned) candidates.push(l.returned);
-    if (l?.eq_outputs) {
-      const vals = typeof l.eq_outputs === "object" ? Object.values(l.eq_outputs) : [];
-      candidates.push(...vals);
+  // Walk the entire receipt tree. Any string that parses to a CertaFrame verdict wins.
+  const stack: any[] = [receipt];
+  const seen = new WeakSet<object>();
+  while (stack.length) {
+    const node = stack.pop();
+    if (node == null) continue;
+    if (typeof node === "string") {
+      const parsed = tryParseVerdict(node);
+      if (parsed) return parsed;
+      continue;
     }
-  }
-  if (receipt.result) candidates.push(receipt.result);
-  for (const raw of candidates) {
-    const parsed = tryParseVerdict(raw);
-    if (parsed) return parsed;
+    if (typeof node === "object") {
+      if (seen.has(node)) continue;
+      seen.add(node);
+      if ("outcome" in node && "recommendedAction" in node) {
+        const parsed = tryParseVerdict(node);
+        if (parsed) return parsed;
+      }
+      for (const v of Object.values(node)) stack.push(v);
+    }
   }
   return null;
 }
