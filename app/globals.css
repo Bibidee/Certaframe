@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --carbon: #080A0B;
+  --optic: #EAF9FF;
+  --cyan2: #00C2FF;
+  --vermilion: #FF3D2E;
+  --amber2: #FFB000;
+  --lime2: #B9FF2C;
+  --uv: #8B5CF6;
+  --mist: #D6E4F0;
+  --slate2: #2D3748;
+  --silver: #A7B0B8;
+  --bone: #F4EBDD;
+  --olive2: #627A3A;
+  --magma: #D93600;
+  --lens: #101820;
+}
+
+html, body { background: var(--carbon); color: var(--optic); }
+body { font-family: var(--font-body), system-ui, sans-serif; }
+
+.glass {
+  background: linear-gradient(180deg, rgba(16,24,32,0.85), rgba(8,10,11,0.95));
+  border: 1px solid rgba(0, 194, 255, 0.18);
+  box-shadow: 0 0 0 1px rgba(234,249,255,0.04) inset, 0 20px 60px -20px rgba(0,194,255,0.15);
+}
+.glass-panel { @apply glass rounded-md p-5; }
+.lens-circle::before {
+  content: "◉"; margin-right: 0.5rem; color: var(--carbon);
+}
+.btn-primary {
+  background: var(--cyan2); color: var(--carbon);
+  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 100%, 0 100%);
+  padding: 0.75rem 1.5rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  font-family: var(--font-mono), monospace; font-size: 0.85rem;
+  border: 1px solid rgba(234,249,255,0.4);
+  transition: filter 0.15s;
+}
+.btn-primary:hover { filter: brightness(1.15); }
+.btn-secondary {
+  background: transparent; color: var(--optic); border: 1px solid var(--cyan2);
+  padding: 0.5rem 1rem; font-family: var(--font-mono), monospace; font-size: 0.75rem;
+  letter-spacing: 0.1em; text-transform: uppercase;
+}
+.btn-review {
+  background: var(--lens); color: var(--optic); border: 1px solid var(--lime2);
+  padding: 0.75rem 1.25rem; font-family: var(--font-mono), monospace; font-size: 0.8rem;
+  letter-spacing: 0.1em; text-transform: uppercase;
+}
+.btn-seal {
+  background: var(--vermilion); color: var(--optic);
+  padding: 0.6rem 1.2rem; font-family: var(--font-mono), monospace; font-size: 0.8rem;
+  letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700;
+}
+.btn-danger {
+  background: transparent; color: var(--magma); border: 1px solid var(--magma);
+  padding: 0.5rem 1rem; font-family: var(--font-mono), monospace; font-size: 0.75rem; text-transform: uppercase;
+}
+
+.hash-strip {
+  font-family: var(--font-mono), monospace; font-size: 0.7rem; color: var(--silver);
+  background: rgba(167,176,184,0.08); border: 1px dashed rgba(167,176,184,0.25);
+  padding: 0.35rem 0.6rem; border-radius: 2px; word-break: break-all;
+}
+
+.crack-mark {
+  display: inline-block; padding: 0.15rem 0.5rem; font-family: var(--font-mono), monospace;
+  font-size: 0.7rem; color: var(--magma); border: 1px solid var(--magma);
+  text-transform: uppercase; letter-spacing: 0.08em;
+}
+
+.lens-grid {
+  background-image: linear-gradient(rgba(0,194,255,0.05) 1px, transparent 1px),
+                    linear-gradient(90deg, rgba(0,194,255,0.05) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.section-label {
+  font-family: var(--font-mono), monospace; font-size: 0.7rem; letter-spacing: 0.2em;
+  text-transform: uppercase; color: var(--cyan2);
+}
+
+a { color: var(--cyan2); }
