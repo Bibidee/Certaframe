@@ -73,7 +73,11 @@ export default function Page() {
       const w = isContractConfigured()
         ? await writeAndWait("record_dispute", [p.id, disputeId, disputeJson])
         : { hash: "", explorerUrl: "" };
-      await putProof({ ...p, status: "DISPUTED", disputeId, disputeTxHash: w.hash, disputeExplorerUrl: w.explorerUrl });
+      await putProof({
+        ...p, status: "DISPUTED", disputeId,
+        disputeReason: reason, disputeRaisedBy: address, disputeRaisedAt: new Date().toISOString(),
+        disputeTxHash: w.hash, disputeExplorerUrl: w.explorerUrl,
+      });
       await putContract({ ...c, status: "DISPUTED" });
       setBusy(""); setDisputeOpen(false); setDisputeText("");
       setMsg(`Dispute recorded. Tx: ${w.hash || "(local only)"}`);
@@ -121,6 +125,37 @@ export default function Page() {
           )}
         </div>
       </div>
+
+      {isDisputed && (
+        <div className="glass-panel border-magma/60">
+          <span className="section-label" style={{ color: "var(--magma)" }}>Dispute Open</span>
+          {p.disputeReason ? (
+            <p className="text-sm text-bone mt-2 leading-relaxed whitespace-pre-wrap">
+              <span className="font-mono text-xs text-silver">REASON:</span> {p.disputeReason}
+            </p>
+          ) : (
+            <p className="text-xs text-silver mt-2">
+              Dispute reason isn&apos;t stored in this browser. Open the dispute tx on the explorer for the full payload.
+            </p>
+          )}
+          <div className="mt-2 space-y-1 text-xs">
+            {p.disputeRaisedBy && <div className="hash-strip">raised by: {p.disputeRaisedBy}</div>}
+            {p.disputeRaisedAt && <div className="hash-strip">raised at: {p.disputeRaisedAt}</div>}
+            {p.disputeId && <div className="hash-strip">dispute id: {p.disputeId}</div>}
+            {p.disputeTxHash && (
+              <div className="hash-strip">
+                dispute tx:{" "}
+                <a href={p.disputeExplorerUrl} target="_blank" className="text-magma underline">
+                  {p.disputeTxHash}
+                </a>
+              </div>
+            )}
+          </div>
+          <p className="text-[10px] font-mono text-silver mt-3">
+            Dispute is recorded on Studionet. Awaiting admin/keeper resolution.
+          </p>
+        </div>
+      )}
 
       {needsRevision && isWorker && c?.id && (
         <div className="glass-panel border-amber2/50">
