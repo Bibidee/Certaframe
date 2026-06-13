@@ -164,7 +164,7 @@ function Toggle({ label, v, on }: { label: string; v: boolean; on: (b: boolean) 
           />
         </span>
         <span className={`font-display text-lg ${v ? "text-lime2" : "text-silver/60"}`}>
-          {v ? "ON" : "OFF"}
+          {v ? "YES" : "NO"}
         </span>
       </div>
     </button>
