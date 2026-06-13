@@ -21,6 +21,9 @@ export default function Page() {
   const [revisionText, setRevisionText] = useState("");
   const [disputeOpen, setDisputeOpen] = useState(false);
   const [disputeText, setDisputeText] = useState("");
+  const [resolveOpen, setResolveOpen] = useState(false);
+  const [resolveOutcome, setResolveOutcome] = useState<"UPHELD" | "REJECTED" | "REVIEW_AGAIN">("UPHELD");
+  const [resolveNotes, setResolveNotes] = useState("");
 
   async function refresh() {
     const pr = await getProof(id); setP(pr);
@@ -88,6 +91,42 @@ export default function Page() {
     }
   }
 
+  async function submitResolution() {
+    if (!address) return alert("Connect wallet.");
+    if (!isClient && !isWorker) return alert("Only the client or worker can resolve this dispute.");
+    if (!resolveNotes.trim()) return;
+    const stamp = new Date().toISOString();
+    const resolution = {
+      outcome: resolveOutcome,
+      notes: resolveNotes.trim(),
+      resolved_by: address,
+      resolved_at: stamp,
+    };
+    const next: any = { ...p, disputeResolution: resolution };
+    // Translate the resolution into local contract/proof status the UI can read.
+    let nextContractStatus = c?.status;
+    if (resolveOutcome === "UPHELD") {
+      next.status = "SUPERSEDED";
+      nextContractStatus = "REVISION_REQUESTED";
+    } else if (resolveOutcome === "REJECTED") {
+      next.status = "REVIEWED";
+      next.uiStatus = "MILESTONE_CONFIRMED";
+      next.confirmedAt = stamp;
+      next.confirmedBy = address;
+      nextContractStatus = "ACCEPTED";
+    } else if (resolveOutcome === "REVIEW_AGAIN") {
+      next.status = "PROOF_SUBMITTED";
+      nextContractStatus = "PROOF_SUBMITTED";
+    }
+    await putProof(next);
+    if (c) await putContract({ ...c, status: nextContractStatus, disputeResolvedAt: stamp });
+    setResolveOpen(false); setResolveNotes("");
+    setMsg(`Dispute marked RESOLVED (${resolveOutcome}). Local-only acknowledgement — on-chain dispute record stays as audit trail.`);
+    refresh();
+  }
+
+  const isResolved = Boolean(p?.disputeResolution);
+
   if (!p) return <main className="max-w-5xl mx-auto px-6 py-16 text-silver">Loading proof…</main>;
 
   const canAct = Boolean(p.verdict);
@@ -151,9 +190,59 @@ export default function Page() {
               </div>
             )}
           </div>
-          <p className="text-[10px] font-mono text-silver mt-3">
-            Dispute is recorded on Studionet. Awaiting admin/keeper resolution.
-          </p>
+          {isResolved ? (
+            <div className="mt-3 border border-lime2/40 p-3 rounded-sm bg-lime2/5">
+              <span className="section-label" style={{ color: "var(--lime2)" }}>
+                Resolved · {p.disputeResolution.outcome}
+              </span>
+              <p className="text-sm text-bone mt-1 whitespace-pre-wrap">{p.disputeResolution.notes}</p>
+              <div className="hash-strip mt-2">resolved by: {p.disputeResolution.resolved_by}</div>
+              <div className="hash-strip mt-1">resolved at: {p.disputeResolution.resolved_at}</div>
+              <p className="text-[10px] font-mono text-silver mt-2">
+                Local-only acknowledgement. On-chain dispute record remains as the permanent audit trail.
+              </p>
+            </div>
+          ) : (
+            <>
+              <p className="text-[10px] font-mono text-silver mt-3">
+                Dispute recorded on Studionet. Either party can mark it resolved here once an outcome is agreed off-chain.
+              </p>
+              {(isClient || isWorker) && (
+                <button
+                  onClick={() => setResolveOpen(!resolveOpen)}
+                  className="btn-secondary mt-3"
+                >
+                  {resolveOpen ? "Cancel" : "Mark Resolved"}
+                </button>
+              )}
+              {resolveOpen && (
+                <div className="mt-3 border border-cyan2/40 p-3 rounded-sm bg-lens/60">
+                  <span className="section-label">Resolution outcome</span>
+                  <div className="mt-2 grid grid-cols-3 gap-2">
+                    {(["UPHELD", "REJECTED", "REVIEW_AGAIN"] as const).map((o) => (
+                      <button key={o} type="button" onClick={() => setResolveOutcome(o)}
+                        className={`p-2 text-[10px] font-mono uppercase border ${resolveOutcome === o ? "border-lime2 text-lime2 bg-lime2/10" : "border-silver/30 text-silver"}`}>
+                        {o.replace("_", " ")}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-silver mt-2 font-mono">
+                    UPHELD = worker resubmits · REJECTED = milestone accepted · REVIEW_AGAIN = rerun review
+                  </p>
+                  <textarea
+                    className="w-full mt-3 bg-[#0b1418] border border-cyan2/25 text-optic font-mono text-xs p-2 rounded-sm"
+                    rows={3}
+                    placeholder="Resolution notes (what was decided and why)"
+                    value={resolveNotes}
+                    onChange={(e) => setResolveNotes(e.target.value)}
+                  />
+                  <button onClick={submitResolution} disabled={!resolveNotes.trim()} className="btn-seal mt-2 disabled:opacity-40">
+                    Record Resolution
+                  </button>
+                </div>
+              )}
+            </>
+          )}
         </div>
       )}
 
