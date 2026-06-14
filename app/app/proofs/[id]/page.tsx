@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useAccount } from "wagmi";
 import { getProof, getContract, getReview, putProof, putContract } from "@/src/lib/storage";
+import { fetchProof, fetchContract, fetchReview, isKeeper, isAdmin } from "@/src/lib/genlayer/queries";
 import { BeforeAfterFrame } from "@/components/BeforeAfterFrame";
 import { VerdictLens } from "@/components/VerdictLens";
 import { GENLAYER_STUDIONET, isContractConfigured } from "@/src/lib/genlayer/config";
@@ -25,20 +26,37 @@ export default function Page() {
   const [resolveOutcome, setResolveOutcome] = useState<"UPHELD" | "REJECTED" | "REVIEW_AGAIN">("UPHELD");
   const [resolveNotes, setResolveNotes] = useState("");
 
+  const [role, setRole] = useState<{ admin: boolean; keeper: boolean }>({ admin: false, keeper: false });
+
   async function refresh() {
-    const pr = await getProof(id); setP(pr);
-    if (pr) { setC(await getContract(pr.contractId)); setR(await getReview(pr.id)); }
+    const pr = await fetchProof(id);
+    setP(pr);
+    if (pr) {
+      const [cc, rr] = await Promise.all([fetchContract(pr.contractId), fetchReview(pr.id)]);
+      setC(cc);
+      setR(rr);
+      if (rr?.verdict && !pr.verdict) {
+        const merged = { ...pr, verdict: rr.verdict };
+        setP(merged);
+        await putProof(merged);
+      }
+    }
+    if (address) {
+      const [a, k] = await Promise.all([isAdmin(address), isKeeper(address)]);
+      setRole({ admin: a, keeper: k });
+    }
   }
-  useEffect(() => { refresh(); }, [id]);
+  useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [id, address]);
 
   const isClient = address && c?.client && address.toLowerCase() === c.client.toLowerCase();
   const isWorker = address && c?.worker && address.toLowerCase() === c.worker.toLowerCase();
+  const isPrivileged = role.admin || role.keeper;
   const isAccepted = p?.uiStatus === "MILESTONE_CONFIRMED" || c?.status === "ACCEPTED";
   const isDisputed = p?.status === "DISPUTED" || c?.status === "DISPUTED";
   const needsRevision = c?.status === "REVISION_REQUESTED" || p?.uiStatus === "REVISION_REQUESTED";
 
   async function confirmMilestone() {
-    if (!isClient) return alert("Only the client wallet can confirm the milestone. Switch to the contract creator's wallet.");
+    if (!isClient && !isPrivileged) return alert("Only the client (or admin/keeper) can confirm the milestone.");
     setBusy("Recording milestone confirmation…"); setMsg("");
     const stamp = new Date().toISOString();
     await putProof({ ...p, uiStatus: "MILESTONE_CONFIRMED", confirmedAt: stamp, confirmedBy: address });
@@ -48,7 +66,7 @@ export default function Page() {
   }
 
   async function submitRevision() {
-    if (!isClient) return alert("Only the client wallet can request revision.");
+    if (!isClient && !isPrivileged) return alert("Only the client (or admin/keeper) can request revision.");
     if (!revisionText.trim()) return;
     await putProof({ ...p, uiStatus: "REVISION_REQUESTED", revisionReason: revisionText.trim(), revisedAt: new Date().toISOString() });
     await putContract({ ...c, status: "REVISION_REQUESTED" });
@@ -282,14 +300,16 @@ export default function Page() {
           <>
             <p className="text-xs text-silver mt-2">
               {isClient ? "You are the client — confirm or request revision below." :
-                p.submitter?.toLowerCase() === address?.toLowerCase() ? "You are the worker — only the client can confirm or request revision. Either party can dispute." :
-                  "Connect the client wallet to confirm or request revision."}
+                role.admin ? "You are the contract admin — full action gate." :
+                role.keeper ? "You are a keeper — full action gate." :
+                isWorker ? "You are the worker — only the client / admin / keeper can confirm or request revision. Either party can dispute." :
+                  "Connect the client / admin / keeper wallet to confirm or request revision."}
             </p>
             <div className="flex gap-3 mt-3 flex-wrap">
-              <button onClick={confirmMilestone} disabled={!isClient || Boolean(busy) || isAccepted} className="btn-seal disabled:opacity-40">
+              <button onClick={confirmMilestone} disabled={(!isClient && !isPrivileged) || Boolean(busy) || isAccepted} className="btn-seal disabled:opacity-40">
                 {isAccepted ? "Milestone Confirmed ✓" : busy || "Confirm Milestone"}
               </button>
-              <button onClick={() => { setRevisionOpen(true); setDisputeOpen(false); }} disabled={!isClient || Boolean(busy)} className="btn-secondary disabled:opacity-40">
+              <button onClick={() => { setRevisionOpen(true); setDisputeOpen(false); }} disabled={(!isClient && !isPrivileged) || Boolean(busy)} className="btn-secondary disabled:opacity-40">
                 Request Revision
               </button>
               <button onClick={() => { setDisputeOpen(true); setRevisionOpen(false); }} disabled={Boolean(busy) || isDisputed} className="btn-danger disabled:opacity-40">

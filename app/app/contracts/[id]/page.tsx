@@ -2,26 +2,42 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { getContract, proofsForContract } from "@/src/lib/storage";
+import { fetchContract, fetchProofsForContract } from "@/src/lib/genlayer/queries";
 import { GENLAYER_STUDIONET } from "@/src/lib/genlayer/config";
 
 export default function Page() {
   const { id } = useParams<{ id: string }>();
   const [c, setC] = useState<any>(null);
   const [proofs, setProofs] = useState<any[]>([]);
-  useEffect(() => { getContract(id).then(setC); proofsForContract(id).then(setProofs); }, [id]);
+  const [refreshing, setRefreshing] = useState(true);
+
+  async function refresh() {
+    setRefreshing(true);
+    const [cc, ps] = await Promise.all([fetchContract(id), fetchProofsForContract(id)]);
+    setC(cc); setProofs(ps);
+    setRefreshing(false);
+  }
+
+  useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [id]);
+
   if (!c) return <main className="max-w-5xl mx-auto px-6 py-16 text-silver">Loading capsule…</main>;
 
   return (
     <main className="max-w-5xl mx-auto px-6 py-12 space-y-6">
       <div className="glass-panel">
-        <span className="section-label">01 / Proof Capsule Header</span>
-        <h1 className="font-display text-4xl text-optic mt-1">{c.title}</h1>
+        <div className="flex items-start justify-between">
+          <div>
+            <span className="section-label">01 / Proof Capsule Header</span>
+            <h1 className="font-display text-4xl text-optic mt-1">{c.title || "Untitled"}</h1>
+          </div>
+          <button onClick={refresh} className="btn-secondary text-[10px]">{refreshing ? "Refreshing…" : "Refresh from chain"}</button>
+        </div>
         <div className="flex flex-wrap gap-3 mt-3 text-xs font-mono text-silver">
           <span>STATUS: <span className="text-lime2">{c.status}</span></span>
           <span>STRICTNESS: {c.strictness}</span>
           <span>DEADLINE: {c.deadline || "—"}</span>
           <span>LOCATION: {c.locationLabel || "—"}</span>
+          {c.latestReviewOutcome && <span>LATEST VERDICT: <span className="text-cyan2">{c.latestReviewOutcome}</span></span>}
         </div>
         <div className="hash-strip mt-3">contract: {c.id}</div>
         {c.contractHash && <div className="hash-strip mt-1">hash: {c.contractHash}</div>}
@@ -68,7 +84,7 @@ export default function Page() {
                   <div className="font-mono text-xs text-silver">{p.id}</div>
                   <div className="text-xs mt-1">
                     Status: <span className="text-cyan2">{p.status}</span>
-                    {p.verdict && <span className="ml-3">Verdict: <span className="text-lime2">{p.verdict.outcome}</span></span>}
+                    {p.onchainVerdictOutcome && <span className="ml-3">Verdict: <span className="text-lime2">{p.onchainVerdictOutcome}</span></span>}
                   </div>
                 </div>
                 <Link href={`/app/proofs/${p.id}`} className="btn-secondary">Open</Link>
