@@ -1,12 +1,9 @@
 "use client";
 import { read } from "./client";
 import { isContractConfigured } from "./config";
-import {
-  getContract as cacheGetContract, putContract as cachePutContract,
-  getProof as cacheGetProof, putProof as cachePutProof,
-  getReview as cacheGetReview, putReview as cachePutReview,
-  listContracts as cacheListContracts, listProofs as cacheListProofs,
-} from "@/src/lib/storage";
+
+// Contract state is the source of truth.
+// IndexedDB is allowed only for local image blobs and draft/form state.
 
 function safeJson(raw: any) {
   if (raw == null || raw === "") return null;
@@ -49,6 +46,7 @@ export async function fetchUserContractIds(addr: string): Promise<string[]> {
 
 function normalizeContractRecord(onchain: any): any | null {
   if (!onchain || typeof onchain !== "object") return null;
+  if (onchain.error) return null;
   const payload = safeJson(onchain.contract_json) || {};
   return {
     id: onchain.contract_id || payload.contract_id,
@@ -76,106 +74,113 @@ function normalizeContractRecord(onchain: any): any | null {
 }
 
 export async function fetchContract(id: string): Promise<any | null> {
-  const cached = await cacheGetContract(id);
-  if (!isContractConfigured()) return cached || null;
+  if (!isContractConfigured()) return null;
   try {
     const raw = await read("get_contract", [id]);
     const parsed = safeJson(raw);
-    const merged = parsed ? normalizeContractRecord(parsed) : null;
-    if (merged) {
-      const combined = { ...(cached || {}), ...merged };
-      await cachePutContract(combined);
-      return combined;
-    }
+    return parsed ? normalizeContractRecord(parsed) : null;
   } catch (e) { console.warn("get_contract failed", e); }
-  return cached || null;
+  return null;
 }
 
-// ---------- Proof + review ----------
+// ---------- Proof ----------
 
-function normalizeProofRecord(onchain: any, cached: any): any | null {
+function normalizeProofRecord(onchain: any): any | null {
   if (!onchain || typeof onchain !== "object") return null;
-  const bundle = safeJson(onchain.image_hash_bundle) || cached?.imageHashBundle || {};
+  if (onchain.error) return null;
+  const bundle = safeJson(onchain.image_hash_bundle) || {};
   return {
-    ...(cached || {}),
-    id: onchain.proof_id || cached?.id,
-    contractId: onchain.contract_id || cached?.contractId,
-    envelopeHash: onchain.proof_envelope_hash || cached?.envelopeHash,
+    id: onchain.proof_id,
+    contractId: onchain.contract_id,
+    envelopeHash: onchain.proof_envelope_hash,
     imageHashBundle: {
-      before: bundle.before ?? bundle.beforeImageHash ?? cached?.imageHashBundle?.before ?? null,
-      after: bundle.after ?? bundle.afterImageHash ?? cached?.imageHashBundle?.after ?? null,
-      metadata: bundle.metadata ?? bundle.metadataHash ?? cached?.imageHashBundle?.metadata ?? null,
+      before: bundle.before ?? bundle.beforeImageHash ?? null,
+      after: bundle.after ?? bundle.afterImageHash ?? null,
+      metadata: bundle.metadata ?? bundle.metadataHash ?? null,
     },
-    submitter: onchain.submitted_by || cached?.submitter,
-    status: onchain.status || cached?.status,
+    submitter: onchain.submitted_by,
+    status: onchain.status,
     onchainVerdictOutcome: onchain.verdict_outcome || "",
     onchainVerdictAction: onchain.verdict_action || "",
     reviewCount: onchain.review_count ?? 0,
-    disputeId: onchain.dispute_id || cached?.disputeId,
-    submittedAt: onchain.submitted_at || cached?.createdAt,
+    disputeId: onchain.dispute_id || "",
+    submittedAt: onchain.submitted_at,
   };
 }
 
 export async function fetchProof(id: string): Promise<any | null> {
-  const cached = await cacheGetProof(id);
-  if (!isContractConfigured()) return cached || null;
+  if (!isContractConfigured()) return null;
   try {
     const raw = await read("get_proof", [id]);
     const parsed = safeJson(raw);
-    const merged = parsed ? normalizeProofRecord(parsed, cached) : null;
-    if (merged) {
-      await cachePutProof(merged);
-      return merged;
-    }
+    return parsed ? normalizeProofRecord(parsed) : null;
   } catch (e) { console.warn("get_proof failed", e); }
-  return cached || null;
+  return null;
 }
 
+// ---------- Review ----------
+
 export async function fetchReview(proofId: string): Promise<any | null> {
-  const cached = await cacheGetReview(proofId);
-  if (!isContractConfigured()) return cached || null;
+  if (!isContractConfigured()) return null;
   try {
     const raw = await read("get_review", [proofId]);
     const parsed = safeJson(raw);
-    if (parsed) {
-      const verdict = parsed.verdict || parsed;
-      const next = {
-        ...(cached || {}),
+    if (parsed && !parsed.error) {
+      return {
         proofId,
-        verdict,
-        reviewedAt: parsed.reviewed_at || cached?.reviewedAt,
-        reviewedBy: parsed.reviewed_by || cached?.reviewedBy,
+        verdict: parsed.verdict || parsed,
+        reviewedAt: parsed.reviewed_at,
+        reviewedBy: parsed.reviewed_by,
+        txHash: parsed.txHash,
       };
-      await cachePutReview(next);
-      return next;
     }
   } catch (e) { console.warn("get_review failed", e); }
-  return cached || null;
+  return null;
+}
+
+// ---------- Dispute ----------
+
+export async function fetchDispute(disputeId: string): Promise<any | null> {
+  if (!isContractConfigured() || !disputeId) return null;
+  try {
+    const raw = await read("get_dispute", [disputeId]);
+    const parsed = safeJson(raw);
+    if (parsed && !parsed.error) return parsed;
+  } catch (e) { console.warn("get_dispute failed", e); }
+  return null;
+}
+
+// ---------- Dispute resolution ----------
+
+export async function fetchDisputeResolution(disputeId: string): Promise<any | null> {
+  if (!isContractConfigured() || !disputeId) return null;
+  try {
+    const raw = await read("get_resolution", [disputeId]);
+    const parsed = safeJson(raw);
+    if (parsed && !parsed.error) return parsed;
+  } catch (e) { console.warn("get_resolution failed", e); }
+  return null;
 }
 
 // ---------- Bulk for dashboard ----------
 
 export async function fetchUserContracts(addr: string): Promise<any[]> {
   const ids = await fetchUserContractIds(addr);
-  if (ids.length === 0) {
-    const cached = await cacheListContracts();
-    return cached.filter((c: any) =>
-      (c.client?.toLowerCase() === addr?.toLowerCase()) ||
-      (c.worker?.toLowerCase() === addr?.toLowerCase())
-    );
-  }
+  if (ids.length === 0) return [];
   const results = await Promise.all(ids.map((id) => fetchContract(id)));
   return results.filter(Boolean);
 }
 
 export async function fetchProofsForContract(contractId: string): Promise<any[]> {
-  // No on-chain enumeration of contract->proofs is exposed today.
-  // Use the local cache and refresh each entry's on-chain state.
-  const localAll = await cacheListProofs();
-  const local = localAll.filter((p: any) => p.contractId === contractId);
-  if (!isContractConfigured()) return local;
-  const refreshed = await Promise.all(local.map((p: any) => fetchProof(p.id)));
-  return refreshed.filter(Boolean);
+  if (!isContractConfigured()) return [];
+  try {
+    const raw = await read("get_contract_proofs", [contractId]);
+    const ids = safeJson(raw);
+    if (!Array.isArray(ids) || ids.length === 0) return [];
+    const results = await Promise.all(ids.map((id: string) => fetchProof(id)));
+    return results.filter(Boolean);
+  } catch (e) { console.warn("get_contract_proofs failed", e); }
+  return [];
 }
 
 // ---------- Role helpers ----------

@@ -2,7 +2,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { getContract, proofsForContract, putReview, putProof, getImage, getReview } from "@/src/lib/storage";
+import { getImage } from "@/src/lib/storage";
+import { fetchContract, fetchProofsForContract } from "@/src/lib/genlayer/queries";
 import { validateVerdict } from "@/src/lib/verdict";
 import { VerdictLens } from "@/components/VerdictLens";
 import { sha256Hex } from "@/src/lib/hash";
@@ -71,8 +72,8 @@ export default function Page() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    getContract(id).then(setC);
-    proofsForContract(id).then((ps) => { setProofs(ps); if (ps[0]) setSelected(ps[0].id); });
+    fetchContract(id).then(setC);
+    fetchProofsForContract(id).then((ps) => { setProofs(ps); if (ps[0]) setSelected(ps[0].id); });
   }, [id]);
 
   async function runReview() {
@@ -133,8 +134,6 @@ export default function Page() {
       const v = validateVerdict(j.verdict);
       if (!v.ok) return setError("Invalid verdict: " + v.error);
       setVerdict(v.verdict);
-      await putReview({ proofId: proof.id, verdict: v.verdict, reviewPayloadHash, reviewedAt: new Date().toISOString() });
-      await putProof({ ...proof, verdict: v.verdict, status: "UNDER_REVIEW" });
       return;
     }
 
@@ -171,11 +170,6 @@ export default function Page() {
       if (!v) return setError("No verdict could be extracted from the receipt. Tx may still be in consensus — try refreshing.");
 
       setVerdict(v);
-      await putReview({
-        proofId: proof.id, verdict: v, reviewPayloadHash,
-        txHash: w.hash, explorerUrl: w.explorerUrl, reviewedAt: new Date().toISOString(),
-      });
-      await putProof({ ...proof, verdict: v, status: "REVIEWED", reviewTxHash: w.hash });
     } catch (e: any) {
       setBusy("");
       setError("On-chain review failed: " + (e?.shortMessage || e?.message || String(e)));

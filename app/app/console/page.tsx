@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useState } from "react";
-import { listProofs, listContracts, getContract, getReview } from "@/src/lib/storage";
+import { useAccount } from "wagmi";
 import { BeforeAfterFrame } from "@/components/BeforeAfterFrame";
 import { GENLAYER_STUDIONET, CONTRACT_ADDRESS } from "@/src/lib/genlayer/config";
+import { fetchUserContracts, fetchProofsForContract, fetchContract, fetchReview } from "@/src/lib/genlayer/queries";
 
 const SECTIONS = [
   "01 / Contract Terms", "02 / Proof Envelope", "03 / Image Hashes", "04 / Signed Submission",
@@ -10,17 +11,31 @@ const SECTIONS = [
 ];
 
 export default function Page() {
+  const { address } = useAccount();
   const [proofs, setProofs] = useState<any[]>([]);
   const [selected, setSelected] = useState<string>("");
   const [proof, setProof] = useState<any>(null);
   const [contract, setContract] = useState<any>(null);
   const [review, setReview] = useState<any>(null);
 
-  useEffect(() => { listProofs().then((ps) => { setProofs(ps); if (ps[0]) setSelected(ps[0].id); }); }, []);
+  useEffect(() => {
+    if (!address) return;
+    fetchUserContracts(address).then(async (contracts) => {
+      const nested = await Promise.all(contracts.map((c: any) => fetchProofsForContract(c.id)));
+      const all = nested.flat();
+      setProofs(all);
+      if (all[0]) setSelected(all[0].id);
+    });
+  }, [address]);
+
   useEffect(() => {
     if (!selected) return;
-    const p = proofs.find((x) => x.id === selected); setProof(p);
-    if (p) { getContract(p.contractId).then(setContract); getReview(p.id).then(setReview); }
+    const p = proofs.find((x) => x.id === selected);
+    setProof(p);
+    if (p) {
+      fetchContract(p.contractId).then(setContract);
+      fetchReview(p.id).then(setReview);
+    }
   }, [selected, proofs]);
 
   return (
@@ -63,20 +78,20 @@ function Cell({ title, proof, contract, review }: any) {
         {section === "Proof Envelope" && (proof ? <pre className="text-xs whitespace-pre-wrap">{JSON.stringify(proof.envelope, null, 2)}</pre> : "—")}
         {section === "Image Hashes" && (proof ? (
           <div className="space-y-1 text-xs">
-            <div className="hash-strip">before: {proof.imageHashBundle.before || "—"}</div>
-            <div className="hash-strip">after: {proof.imageHashBundle.after}</div>
-            <div className="hash-strip">metadata: {proof.imageHashBundle.metadata}</div>
+            <div className="hash-strip">before: {proof.imageHashBundle?.before || "—"}</div>
+            <div className="hash-strip">after: {proof.imageHashBundle?.after || "—"}</div>
+            <div className="hash-strip">metadata: {proof.imageHashBundle?.metadata || "—"}</div>
           </div>
         ) : "—")}
         {section === "Signed Submission" && (proof ? (
           <div className="space-y-1 text-xs">
             <div className="hash-strip">submitter: {proof.submitter}</div>
-            <div className="hash-strip">sig: {proof.signature?.slice(0, 60)}…</div>
+            {proof.signature && <div className="hash-strip">sig: {proof.signature?.slice(0, 60)}…</div>}
             <div className="hash-strip">envelope hash: {proof.envelopeHash}</div>
           </div>
         ) : "—")}
-        {section === "Visual Evidence Pair" && (proof ? <BeforeAfterFrame beforeHash={proof.imageHashBundle.before} afterHash={proof.imageHashBundle.after} /> : "—")}
-        {section === "Validator Lens" && (review ? (
+        {section === "Visual Evidence Pair" && (proof ? <BeforeAfterFrame beforeHash={proof.imageHashBundle?.before} afterHash={proof.imageHashBundle?.after} /> : "—")}
+        {section === "Validator Lens" && (review?.verdict ? (
           <div className="text-xs space-y-1">
             <div>outcome: <span className="text-lime2">{review.verdict.outcome}</span></div>
             <div>confidence: {(review.verdict.confidence*100).toFixed(0)}%</div>
@@ -84,10 +99,10 @@ function Cell({ title, proof, contract, review }: any) {
             <div>completion: {review.verdict.taskCompletion}</div>
           </div>
         ) : "—")}
-        {section === "Consensus Verdict" && (review ? (
+        {section === "Consensus Verdict" && (review?.verdict ? (
           <pre className="text-xs whitespace-pre-wrap">{JSON.stringify(review.verdict, null, 2)}</pre>
         ) : "—")}
-        {section === "Action Mapping" && (review ? (
+        {section === "Action Mapping" && (review?.verdict ? (
           <div className="text-sm">
             <div>recommended: <span className="text-cyan2">{review.verdict.recommendedAction}</span></div>
             <div className="text-xs text-silver mt-1">UI surfaces this in the Action Gate of the proof packet.</div>

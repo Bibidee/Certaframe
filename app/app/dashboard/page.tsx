@@ -2,55 +2,43 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAccount } from "wagmi";
-import { listProofs } from "@/src/lib/storage";
 import { CONTRACT_MISSING_MESSAGE, isContractConfigured } from "@/src/lib/genlayer/config";
 import { fetchProtocolStats, fetchUserContracts, ProtocolStats } from "@/src/lib/genlayer/queries";
 
 export default function Page() {
   const { address } = useAccount();
   const [contracts, setContracts] = useState<any[]>([]);
-  const [proofs, setProofs] = useState<any[]>([]);
   const [stats, setStats] = useState<ProtocolStats | null>(null);
-  const [source, setSource] = useState<"chain" | "cache">("cache");
   const [refreshing, setRefreshing] = useState(false);
 
   async function refresh() {
     setRefreshing(true);
-    const [s, c, p] = await Promise.all([
+    const [s, c] = await Promise.all([
       fetchProtocolStats(),
       address ? fetchUserContracts(address) : Promise.resolve([]),
-      listProofs(),
     ]);
-    if (s) { setStats(s); setSource("chain"); }
-    else setSource("cache");
+    if (s) setStats(s);
     setContracts(c);
-    setProofs(p);
     setRefreshing(false);
   }
 
   useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [address]);
 
-  // Tile values: prefer on-chain stats when available, fall back to derived counts.
   const myActive = contracts.filter((c) => c.status === "ACTIVE").length;
   const myAwaiting = contracts.filter((c) => c.status === "PROOF_SUBMITTED").length;
   const myAccepted = contracts.filter((c) => c.status === "ACCEPTED").length;
   const myRevisions = contracts.filter((c) => c.status === "REVISION_REQUESTED").length;
   const myDisputes = contracts.filter((c) => c.status === "DISPUTED").length;
 
-  const reviewedProofs = proofs.filter((p) => p.verdict?.confidence != null);
-  const avgConfidence = reviewedProofs.length
-    ? reviewedProofs.reduce((s, p) => s + (p.verdict.confidence || 0), 0) / reviewedProofs.length
-    : 0;
-
+  // Inbox: contracts where I am client and proof is awaiting my review.
   const awaitingMine = address
-    ? proofs.filter((p) => {
-        if (p.status !== "PROOF_SUBMITTED" && p.status !== "UNDER_REVIEW") return false;
-        if (p.verdict) return false;
-        const c = contracts.find((x) => x.id === p.contractId);
-        return c?.client && c.client.toLowerCase() === address.toLowerCase();
+    ? contracts.filter((c) => {
+        if (c.status !== "PROOF_SUBMITTED") return false;
+        return c.client?.toLowerCase() === address.toLowerCase();
       })
     : [];
 
+  // Inbox: contracts where I am worker and revision was requested.
   const revisionMine = address
     ? contracts.filter((c) => c.status === "REVISION_REQUESTED" && c.worker?.toLowerCase() === address.toLowerCase())
     : [];
@@ -62,7 +50,7 @@ export default function Page() {
           <span className="section-label">Dashboard</span>
           <h1 className="font-display text-5xl text-optic">Capsule Board</h1>
           <p className="text-[10px] font-mono uppercase tracking-widest text-silver mt-1">
-            Source: <span className={source === "chain" ? "text-lime2" : "text-amber2"}>{source}</span>
+            Source: <span className="text-lime2">chain</span>
             {refreshing && <span className="text-cyan2"> · refreshing</span>}
             <button onClick={refresh} className="ml-3 text-cyan2 underline">refresh</button>
           </p>
@@ -84,7 +72,7 @@ export default function Page() {
               {awaitingMine.length} proof{awaitingMine.length > 1 ? "s" : ""} awaiting your review.
             </p>
           </div>
-          <Link href={`/app/contracts/${awaitingMine[0].contractId}/review`} className="btn-review">
+          <Link href={`/app/contracts/${awaitingMine[0].id}/review`} className="btn-review">
             Open Review
           </Link>
         </div>
@@ -110,7 +98,7 @@ export default function Page() {
         <Stat label="Accepted" value={myAccepted} color="var(--lime2)" />
         <Stat label="Revisions" value={myRevisions} color="var(--amber2)" />
         <Stat label="Disputes" value={myDisputes} color="var(--magma)" />
-        <Stat label="Avg Confidence" value={`${(avgConfidence * 100).toFixed(0)}%`} color="var(--cyan2)" />
+        <Stat label="Protocol Proofs" value={stats?.proofs ?? "—"} color="var(--cyan2)" />
       </div>
 
       {stats && (

@@ -1,4 +1,4 @@
-# v0.2.18
+# v0.2.19
 # { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
 from genlayer import *
 import json
@@ -56,6 +56,64 @@ ALLOWED_ACTIONS = (
     "request_more_evidence",
     "escalate",
 )
+
+ALLOWED_RESOLUTION_OUTCOMES = (
+    "ACCEPT_PROOF",
+    "REJECT_PROOF",
+    "REQUEST_REVISION",
+    "ESCALATE_TO_HUMAN",
+    "INSUFFICIENT_EVIDENCE",
+)
+
+ALLOWED_RESOLUTION_CONFIDENCE = ("LOW", "MEDIUM", "HIGH")
+ALLOWED_CRITERIA_RESULTS = ("SATISFIED", "PARTIALLY_SATISFIED", "NOT_SATISFIED", "UNCLEAR")
+ALLOWED_NEXT_ACTIONS = ("NONE", "SUBMIT_MORE_EVIDENCE", "REWORK_REQUIRED", "MANUAL_REVIEW_REQUIRED")
+ALLOWED_EVIDENCE_INTEGRITY = ("OK", "MISMATCH", "UNCLEAR")
+
+# Verdict keywords the caller must not pre-smuggle into context_notes as a pre-decided outcome.
+_VERDICT_SMUGGLE_KEYS = (
+    '"outcome":', '"final_outcome":', '"resolution_verdict":', '"final_verdict":',
+    '"approved":', '"rejected":', '"accepted":', '"resolved_outcome":',
+)
+
+DISPUTE_RESOLUTION_PROMPT = """
+You are CertaFrameVerifier, a GenLayer dispute resolution adjudicator.
+
+Your job:
+Review the original task contract, the submitted proof hashes and envelope, and the dispute raised against it.
+Determine whether the proof should be accepted, rejected, or needs revision.
+
+Important limits:
+- The dispute raiser's opinion is evidence, not the verdict. You decide.
+- Judge only whether the proof satisfies the original contract acceptance criteria.
+- Do not certify safety, legality, or regulatory compliance.
+- Do not overclaim. If evidence is insufficient, say so.
+- Return strict JSON only. No markdown. No commentary outside JSON.
+
+Required JSON schema (all fields required, no extras):
+{
+  "outcome": "ACCEPT_PROOF | REJECT_PROOF | REQUEST_REVISION | ESCALATE_TO_HUMAN | INSUFFICIENT_EVIDENCE",
+  "confidence": "LOW | MEDIUM | HIGH",
+  "reason": "brief reason under 300 chars",
+  "criteria_result": "SATISFIED | PARTIALLY_SATISFIED | NOT_SATISFIED | UNCLEAR",
+  "required_next_action": "NONE | SUBMIT_MORE_EVIDENCE | REWORK_REQUIRED | MANUAL_REVIEW_REQUIRED",
+  "evidence_integrity": "OK | MISMATCH | UNCLEAR"
+}
+
+Decision guide:
+- ACCEPT_PROOF: The dispute is not convincing. The proof satisfies the contract criteria.
+- REJECT_PROOF: The dispute is valid. The proof does not satisfy the criteria.
+- REQUEST_REVISION: Partial satisfaction. More evidence or rework needed.
+- ESCALATE_TO_HUMAN: Cannot be resolved from available evidence. Human review required.
+- INSUFFICIENT_EVIDENCE: Not enough information to judge either way.
+
+Outcome/action consistency rules:
+- ACCEPT_PROOF → required_next_action must be NONE
+- REJECT_PROOF → required_next_action must be REWORK_REQUIRED
+- REQUEST_REVISION → required_next_action must be SUBMIT_MORE_EVIDENCE or REWORK_REQUIRED
+- ESCALATE_TO_HUMAN → required_next_action must be MANUAL_REVIEW_REQUIRED
+- INSUFFICIENT_EVIDENCE → required_next_action must be SUBMIT_MORE_EVIDENCE
+"""
 
 REVIEW_PROMPT = """
 You are CertaFrameVerifier, a GenLayer visual evidence reviewer for
@@ -217,6 +275,7 @@ class CertaFrameVerifier(gl.Contract):
     proofs: TreeMap[str, str]
     reviews: TreeMap[str, str]
     disputes: TreeMap[str, str]
+    resolutions: TreeMap[str, str]
     contract_proofs: TreeMap[str, str]
     user_contracts: TreeMap[str, str]
     keepers: TreeMap[str, str]
@@ -397,6 +456,99 @@ class CertaFrameVerifier(gl.Contract):
         return dispute_id
 
     @gl.public.write
+    def resolve_dispute(self, dispute_id: str, context_notes: str) -> str:
+        _require(_is_nonempty_str(dispute_id), "dispute_id_required")
+        _require(dispute_id in self.disputes, "dispute_not_found")
+
+        dispute = _json_loads_object(self.disputes[dispute_id], "stored_dispute_corrupted")
+        _require(dispute.get("status", "") == "OPEN", "dispute_already_resolved")
+
+        proof_id = str(dispute.get("proof_id", ""))
+        contract_id = str(dispute.get("contract_id", ""))
+
+        proof = self._get_proof_required(proof_id)
+        contract = self._get_contract_required(contract_id)
+
+        caller = _sender()
+        client = _addr(contract.get("client", ""))
+        worker = _addr(contract.get("worker", ""))
+        _require(
+            caller == client or caller == worker or self._is_admin(caller) or self._is_keeper_addr(caller),
+            "only_contract_parties_admin_or_keeper_can_resolve_dispute",
+        )
+
+        # Guard: reject context_notes that smuggle pre-decided outcome keys.
+        notes_lower = str(context_notes).lower()
+        for key in _VERDICT_SMUGGLE_KEYS:
+            _require(key not in notes_lower, "context_notes_must_not_contain_pre_decided_verdict_fields")
+
+        safe_notes = str(context_notes).strip()[:800] if _is_nonempty_str(context_notes) else "none"
+
+        dispute_payload = _json_loads_object(dispute.get("dispute_json", "{}"), "dispute_json_corrupted")
+        contract_json_str = contract.get("contract_json", "")
+
+        resolution_prompt = (
+            DISPUTE_RESOLUTION_PROMPT
+            + "\n\nCONTRACT:\n"
+            + _json_dumps({"contract_id": contract_id, "contract_json": contract_json_str})
+            + "\n\nPROOF:\n"
+            + _json_dumps({
+                "proof_id": proof_id,
+                "proof_envelope_hash": proof.get("proof_envelope_hash", ""),
+                "image_hash_bundle": proof.get("image_hash_bundle", ""),
+                "prior_verdict_outcome": proof.get("verdict_outcome", ""),
+            })
+            + "\n\nDISPUTE:\n"
+            + _json_dumps({
+                "dispute_id": dispute_id,
+                "reason": dispute_payload.get("reason", ""),
+                "raised_by": dispute.get("raised_by", ""),
+                "raised_at": dispute.get("raised_at", ""),
+            })
+            + "\n\nADDITIONAL CONTEXT FROM PARTY:\n"
+            + safe_notes
+        )
+
+        resolution = self._run_dispute_resolution(resolution_prompt)
+
+        resolution_record = {
+            "dispute_id": dispute_id,
+            "proof_id": proof_id,
+            "contract_id": contract_id,
+            "resolved_by": caller,
+            "resolved_at": _now_iso(),
+            "resolution": resolution,
+        }
+        self.resolutions[dispute_id] = _json_dumps(resolution_record)
+
+        # Update dispute status.
+        dispute["status"] = "RESOLVED"
+        dispute["resolved_at"] = _now_iso()
+        dispute["resolved_by"] = caller
+        self.disputes[dispute_id] = _json_dumps(dispute)
+
+        # Update proof and contract status based on resolution outcome.
+        outcome = resolution.get("outcome", "")
+        if outcome == "ACCEPT_PROOF":
+            proof["status"] = "REVIEWED"
+            proof["verdict_outcome"] = "ACCEPT"
+            contract["status"] = "ACCEPTED"
+        elif outcome == "REJECT_PROOF":
+            contract["status"] = "REVISION_REQUESTED"
+        elif outcome == "REQUEST_REVISION":
+            proof["status"] = "SUPERSEDED"
+            contract["status"] = "REVISION_REQUESTED"
+        elif outcome == "ESCALATE_TO_HUMAN":
+            contract["status"] = "ESCALATED"
+        elif outcome == "INSUFFICIENT_EVIDENCE":
+            contract["status"] = "INSUFFICIENT_EVIDENCE"
+
+        self.proofs[proof_id] = _json_dumps(proof)
+        self.contracts[contract_id] = _json_dumps(contract)
+
+        return _json_dumps(resolution_record)
+
+    @gl.public.write
     def review_visual_proof(self, proof_id: str, review_payload_json: str) -> str:
         _require(_is_nonempty_str(proof_id), "proof_id_required")
         _require(_is_nonempty_str(review_payload_json), "review_payload_json_required")
@@ -513,6 +665,12 @@ class CertaFrameVerifier(gl.Contract):
         return self.disputes[dispute_id]
 
     @gl.public.view
+    def get_resolution(self, dispute_id: str) -> str:
+        if dispute_id not in self.resolutions:
+            return _json_dumps({"error": "resolution_not_found"})
+        return self.resolutions[dispute_id]
+
+    @gl.public.view
     def get_contract_proofs(self, contract_id: str) -> str:
         if contract_id not in self.contract_proofs:
             return _json_dumps([])
@@ -535,6 +693,59 @@ class CertaFrameVerifier(gl.Contract):
     @gl.public.view
     def get_protocol_stats(self) -> str:
         return self.stats
+
+    def _run_dispute_resolution(self, full_prompt):
+        def leader_fn():
+            raw = gl.nondet.exec_prompt(full_prompt)
+            parsed = _extract_json_object(raw)
+            resolution = self._normalize_resolution(parsed)
+            self._validate_resolution(resolution)
+            return _json_dumps(resolution)
+
+        result_json = gl.eq_principle.prompt_comparative(leader_fn, self._dispute_resolution_equivalence())
+        resolution = _json_loads_object(result_json, "resolution_result_invalid_json")
+        resolution = self._normalize_resolution(resolution)
+        self._validate_resolution(resolution)
+        return resolution
+
+    def _normalize_resolution(self, v):
+        if not isinstance(v, dict):
+            v = {}
+        return {
+            "outcome": str(v.get("outcome", "")).strip(),
+            "confidence": str(v.get("confidence", "LOW")).strip(),
+            "reason": str(v.get("reason", "")).strip()[:300],
+            "criteria_result": str(v.get("criteria_result", "UNCLEAR")).strip(),
+            "required_next_action": str(v.get("required_next_action", "MANUAL_REVIEW_REQUIRED")).strip(),
+            "evidence_integrity": str(v.get("evidence_integrity", "UNCLEAR")).strip(),
+        }
+
+    def _validate_resolution(self, v):
+        _require(isinstance(v, dict), "resolution_must_be_object")
+        _require(v.get("outcome", "") in ALLOWED_RESOLUTION_OUTCOMES, "invalid_resolution_outcome")
+        _require(v.get("confidence", "") in ALLOWED_RESOLUTION_CONFIDENCE, "invalid_resolution_confidence")
+        _require(v.get("criteria_result", "") in ALLOWED_CRITERIA_RESULTS, "invalid_criteria_result")
+        _require(v.get("required_next_action", "") in ALLOWED_NEXT_ACTIONS, "invalid_required_next_action")
+        _require(v.get("evidence_integrity", "") in ALLOWED_EVIDENCE_INTEGRITY, "invalid_evidence_integrity")
+        outcome = v.get("outcome", "")
+        action = v.get("required_next_action", "")
+        if outcome == "ACCEPT_PROOF":
+            _require(action == "NONE", "accept_proof_must_have_none_action")
+        elif outcome == "REJECT_PROOF":
+            _require(action == "REWORK_REQUIRED", "reject_proof_must_have_rework_action")
+        elif outcome == "REQUEST_REVISION":
+            _require(action in ("SUBMIT_MORE_EVIDENCE", "REWORK_REQUIRED"), "request_revision_must_have_evidence_or_rework")
+        elif outcome == "ESCALATE_TO_HUMAN":
+            _require(action == "MANUAL_REVIEW_REQUIRED", "escalate_must_have_manual_review")
+        elif outcome == "INSUFFICIENT_EVIDENCE":
+            _require(action == "SUBMIT_MORE_EVIDENCE", "insufficient_evidence_must_request_evidence")
+
+    def _dispute_resolution_equivalence(self):
+        return (
+            "Two CertaFrame dispute resolution outputs are equivalent if they agree on "
+            "the same outcome, criteria_result, and required_next_action. "
+            "The exact wording of reason does not need to match, but the core judgment must be the same."
+        )
 
     def _validate_contract_payload(self, p):
         _require(isinstance(p, dict), "contract_json_must_be_object")

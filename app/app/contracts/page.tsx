@@ -1,11 +1,15 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { listContracts } from "@/src/lib/storage";
+import { useAccount } from "wagmi";
+import { fetchUserContracts } from "@/src/lib/genlayer/queries";
 
 export default function Page() {
+  const { address } = useAccount();
   const [contracts, setContracts] = useState<any[]>([]);
-  useEffect(() => { listContracts().then(setContracts); }, []);
+  useEffect(() => {
+    if (address) fetchUserContracts(address).then(setContracts);
+  }, [address]);
   return (
     <main className="max-w-7xl mx-auto px-6 py-12">
       <div className="flex justify-between items-end mb-8">

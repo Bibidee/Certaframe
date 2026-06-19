@@ -86,9 +86,8 @@ export async function writeAndWait(functionName: string, args: any[]): Promise<W
   const resultCode = exec?.execution_result || exec?.result || receipt?.result || receipt?.execution_result;
   const errMsg = exec?.error_message || exec?.error || receipt?.error_message;
   if (typeof resultCode === "string" && /rollback|reverted|error/i.test(resultCode)) {
-    // Don't throw for review_visual_proof — leader verdict is still useful even if
-    // consensus came back UNDETERMINED. The caller decides what to do with it.
-    if (functionName !== "review_visual_proof") {
+    // Don't throw for nondeterministic methods — leader result still useful on UNDETERMINED consensus.
+    if (functionName !== "review_visual_proof" && functionName !== "resolve_dispute") {
       const tail = errMsg ? ` (${errMsg})` : "";
       throw new Error(`GenLayer transaction ${functionName} rolled back${tail}. Tx: ${txHash}`);
     }

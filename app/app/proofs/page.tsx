@@ -1,11 +1,21 @@
 "use client";
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { listProofs } from "@/src/lib/storage";
+import { useAccount } from "wagmi";
+import { fetchUserContracts, fetchProofsForContract } from "@/src/lib/genlayer/queries";
 
 export default function Page() {
+  const { address } = useAccount();
   const [proofs, setProofs] = useState<any[]>([]);
-  useEffect(() => { listProofs().then(setProofs); }, []);
+
+  useEffect(() => {
+    if (!address) return;
+    fetchUserContracts(address).then(async (contracts) => {
+      const nested = await Promise.all(contracts.map((c: any) => fetchProofsForContract(c.id)));
+      setProofs(nested.flat());
+    });
+  }, [address]);
+
   return (
     <main className="max-w-7xl mx-auto px-6 py-12">
       <span className="section-label">All Proofs</span>
@@ -16,10 +26,9 @@ export default function Page() {
           <Link key={p.id} href={`/app/proofs/${p.id}`} className="glass-panel hover:border-cyan2">
             <span className="section-label">{p.status}</span>
             <div className="font-mono text-xs text-silver mt-2">{p.id}</div>
-            {p.verdict && (
+            {p.onchainVerdictOutcome && (
               <div className="mt-3">
-                <div className="font-display text-2xl text-lime2">{p.verdict.outcome}</div>
-                <div className="text-xs text-silver">Confidence {(p.verdict.confidence*100).toFixed(0)}%</div>
+                <div className="font-display text-2xl text-lime2">{p.onchainVerdictOutcome}</div>
               </div>
             )}
           </Link>

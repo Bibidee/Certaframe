@@ -3,12 +3,40 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useAccount } from "wagmi";
-import { getProof, getContract, getReview, putProof, putContract } from "@/src/lib/storage";
-import { fetchProof, fetchContract, fetchReview, isKeeper, isAdmin } from "@/src/lib/genlayer/queries";
+import { fetchProof, fetchContract, fetchReview, fetchDispute, fetchDisputeResolution, isKeeper, isAdmin } from "@/src/lib/genlayer/queries";
 import { BeforeAfterFrame } from "@/components/BeforeAfterFrame";
 import { VerdictLens } from "@/components/VerdictLens";
 import { GENLAYER_STUDIONET, isContractConfigured } from "@/src/lib/genlayer/config";
 import { writeAndWait } from "@/src/lib/genlayer/client";
+
+function extractResolutionFromReceipt(receipt: any): any | null {
+  if (!receipt) return null;
+  const stack: any[] = [receipt];
+  const seen = new WeakSet<object>();
+  while (stack.length) {
+    const node = stack.pop();
+    if (node == null) continue;
+    if (typeof node === "string") {
+      try {
+        const j = JSON.parse(node);
+        if (typeof j === "object" && j && "outcome" in j && "criteria_result" in j) return j;
+        if (typeof j === "string") {
+          const j2 = JSON.parse(j);
+          if (typeof j2 === "object" && j2 && "outcome" in j2 && "criteria_result" in j2) return j2;
+        }
+      } catch {}
+      continue;
+    }
+    if (typeof node === "object") {
+      if (seen.has(node)) continue;
+      seen.add(node);
+      if ("outcome" in node && "criteria_result" in node) return node;
+      if ("resolution" in node && typeof node.resolution === "object" && node.resolution && "outcome" in node.resolution) return node.resolution;
+      for (const v of Object.values(node)) stack.push(v);
+    }
+  }
+  return null;
+}
 
 export default function Page() {
   const { id } = useParams<{ id: string }>();
@@ -16,6 +44,8 @@ export default function Page() {
   const [p, setP] = useState<any>(null);
   const [c, setC] = useState<any>(null);
   const [r, setR] = useState<any>(null);
+  const [onchainDispute, setOnchainDispute] = useState<any>(null);
+  const [onchainResolution, setOnchainResolution] = useState<any>(null);
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   const [revisionOpen, setRevisionOpen] = useState(false);
@@ -35,10 +65,18 @@ export default function Page() {
       const [cc, rr] = await Promise.all([fetchContract(pr.contractId), fetchReview(pr.id)]);
       setC(cc);
       setR(rr);
-      if (rr?.verdict && !pr.verdict) {
-        const merged = { ...pr, verdict: rr.verdict };
-        setP(merged);
-        await putProof(merged);
+
+      // Fetch dispute and resolution from chain — these are the source of truth.
+      if (pr.disputeId) {
+        const [dispute, resolution] = await Promise.all([
+          fetchDispute(pr.disputeId),
+          fetchDisputeResolution(pr.disputeId),
+        ]);
+        setOnchainDispute(dispute);
+        setOnchainResolution(resolution);
+      } else {
+        setOnchainDispute(null);
+        setOnchainResolution(null);
       }
     }
     if (address) {
@@ -51,34 +89,31 @@ export default function Page() {
   const isClient = address && c?.client && address.toLowerCase() === c.client.toLowerCase();
   const isWorker = address && c?.worker && address.toLowerCase() === c.worker.toLowerCase();
   const isPrivileged = role.admin || role.keeper;
-  const isAccepted = p?.uiStatus === "MILESTONE_CONFIRMED" || c?.status === "ACCEPTED";
-  const isDisputed = p?.status === "DISPUTED" || c?.status === "DISPUTED";
-  const needsRevision = c?.status === "REVISION_REQUESTED" || p?.uiStatus === "REVISION_REQUESTED";
+  // On-chain state is authoritative for these flags.
+  const isAccepted = c?.status === "ACCEPTED";
+  const isDisputed = p?.status === "DISPUTED" || c?.status === "DISPUTED" || onchainDispute?.status === "OPEN" || onchainDispute?.status === "RESOLVED";
+  const isResolved = onchainDispute?.status === "RESOLVED" || onchainResolution != null;
+  const needsRevision = c?.status === "REVISION_REQUESTED";
 
   async function confirmMilestone() {
     if (!isClient && !isPrivileged) return alert("Only the client (or admin/keeper) can confirm the milestone.");
-    setBusy("Recording milestone confirmation…"); setMsg("");
-    const stamp = new Date().toISOString();
-    await putProof({ ...p, uiStatus: "MILESTONE_CONFIRMED", confirmedAt: stamp, confirmedBy: address });
-    await putContract({ ...c, status: "ACCEPTED", confirmedAt: stamp });
-    setBusy(""); setMsg("Milestone confirmed. Contract marked ACCEPTED locally — on-chain status already follows the verdict.");
-    refresh();
+    setBusy("Refreshing on-chain status…"); setMsg("");
+    await refresh();
+    setBusy(""); setMsg("Milestone status synced from chain.");
   }
 
   async function submitRevision() {
     if (!isClient && !isPrivileged) return alert("Only the client (or admin/keeper) can request revision.");
     if (!revisionText.trim()) return;
-    await putProof({ ...p, uiStatus: "REVISION_REQUESTED", revisionReason: revisionText.trim(), revisedAt: new Date().toISOString() });
-    await putContract({ ...c, status: "REVISION_REQUESTED" });
     setRevisionOpen(false); setRevisionText("");
-    setMsg("Revision requested. Worker can now submit a new proof packet.");
-    refresh();
+    setMsg("Revision noted. Contract status is set by the review verdict on-chain — worker can resubmit.");
+    await refresh();
   }
 
   async function submitDispute() {
     if (!address) return alert("Connect wallet.");
-    const isWorker = c?.worker && address.toLowerCase() === c.worker.toLowerCase();
-    if (!isClient && !isWorker) return alert("Only the client or worker can open a dispute.");
+    const isWorkerCheck = c?.worker && address.toLowerCase() === c.worker.toLowerCase();
+    if (!isClient && !isWorkerCheck) return alert("Only the client or worker can open a dispute.");
     if (!disputeText.trim()) return;
     const reason = disputeText.trim();
     const disputeId = "d_" + crypto.randomUUID();
@@ -94,14 +129,8 @@ export default function Page() {
       const w = isContractConfigured()
         ? await writeAndWait("record_dispute", [p.id, disputeId, disputeJson])
         : { hash: "", explorerUrl: "" };
-      await putProof({
-        ...p, status: "DISPUTED", disputeId,
-        disputeReason: reason, disputeRaisedBy: address, disputeRaisedAt: new Date().toISOString(),
-        disputeTxHash: w.hash, disputeExplorerUrl: w.explorerUrl,
-      });
-      await putContract({ ...c, status: "DISPUTED" });
       setBusy(""); setDisputeOpen(false); setDisputeText("");
-      setMsg(`Dispute recorded. Tx: ${w.hash || "(local only)"}`);
+      setMsg(`Dispute recorded on-chain. Tx: ${w.hash || "(local only)"}`);
       refresh();
     } catch (e: any) {
       setBusy("");
@@ -111,60 +140,68 @@ export default function Page() {
 
   async function submitResolution() {
     if (!address) return alert("Connect wallet.");
-    if (!isClient && !isWorker) return alert("Only the client or worker can resolve this dispute.");
+    const isWorkerCheck = c?.worker && address.toLowerCase() === c.worker.toLowerCase();
+    if (!isClient && !isWorkerCheck && !isPrivileged) return alert("Only the client or worker can resolve this dispute.");
     if (!resolveNotes.trim()) return;
-    const stamp = new Date().toISOString();
-    const resolution = {
-      outcome: resolveOutcome,
-      notes: resolveNotes.trim(),
-      resolved_by: address,
-      resolved_at: stamp,
-    };
-    const next: any = { ...p, disputeResolution: resolution };
-    // Translate the resolution into local contract/proof status the UI can read.
-    let nextContractStatus = c?.status;
-    if (resolveOutcome === "UPHELD") {
-      next.status = "SUPERSEDED";
-      nextContractStatus = "REVISION_REQUESTED";
-    } else if (resolveOutcome === "REJECTED") {
-      next.status = "REVIEWED";
-      next.uiStatus = "MILESTONE_CONFIRMED";
-      next.confirmedAt = stamp;
-      next.confirmedBy = address;
-      nextContractStatus = "ACCEPTED";
-    } else if (resolveOutcome === "REVIEW_AGAIN") {
-      next.status = "PROOF_SUBMITTED";
-      nextContractStatus = "PROOF_SUBMITTED";
-    }
-    await putProof(next);
-    if (c) await putContract({ ...c, status: nextContractStatus, disputeResolvedAt: stamp });
-    setResolveOpen(false); setResolveNotes("");
-    setMsg(`Dispute marked RESOLVED (${resolveOutcome}). Local-only acknowledgement — on-chain dispute record stays as audit trail.`);
-    refresh();
-  }
 
-  const isResolved = Boolean(p?.disputeResolution);
+    const disputeId = p?.disputeId;
+    if (!disputeId) return setMsg("No dispute ID found on proof record. Cannot resolve.");
+
+    // context_notes carries the party's stated position. GenLayer adjudicates the actual outcome.
+    const contextNotes = `Requested remedy: ${resolveOutcome}. Notes: ${resolveNotes.trim()}`;
+
+    setBusy("Submitting dispute for on-chain adjudication (GenLayer validators ~30-90s)…"); setMsg("");
+    try {
+      const w = await writeAndWait("resolve_dispute", [disputeId, contextNotes]);
+      setMsg(`Adjudication tx: ${w.hash}`);
+
+      // Try reading the resolution back from contract state.
+      setBusy("Reading resolution from contract…");
+      let resolution = null;
+      try { resolution = await fetchDisputeResolution(disputeId); } catch {}
+
+      // Fall back to leader receipt tree-walk (handles UNDETERMINED consensus).
+      if (!resolution && w.receipt) {
+        setBusy("Reading resolution from leader receipt…");
+        const fromReceipt = extractResolutionFromReceipt(w.receipt);
+        if (fromReceipt) resolution = fromReceipt;
+      }
+
+      setBusy(""); setResolveOpen(false); setResolveNotes("");
+      const outcome = resolution?.outcome || resolution?.resolution?.outcome;
+      setMsg(
+        outcome
+          ? `Dispute resolved on-chain. GenLayer outcome: ${outcome}`
+          : `Adjudication submitted. Tx: ${w.hash}. Refresh to see resolution.`
+      );
+      refresh();
+    } catch (e: any) {
+      setBusy("");
+      setMsg("On-chain resolution failed: " + (e?.shortMessage || e?.message || String(e)));
+    }
+  }
 
   if (!p) return <main className="max-w-5xl mx-auto px-6 py-16 text-silver">Loading proof…</main>;
 
-  const canAct = Boolean(p.verdict);
+  const canAct = Boolean(p.verdict || p.onchainVerdictOutcome);
+  const resolution = onchainResolution?.resolution;
 
   return (
     <main className="max-w-5xl mx-auto px-6 py-12 space-y-6">
       <span className="section-label">Proof Packet</span>
       <h1 className="font-display text-5xl text-optic">{c?.title || "Contract"}</h1>
 
-      <BeforeAfterFrame beforeHash={p.imageHashBundle.before} afterHash={p.imageHashBundle.after} />
+      <BeforeAfterFrame beforeHash={p.imageHashBundle?.before} afterHash={p.imageHashBundle?.after} />
 
       <div className="glass-panel">
         <span className="section-label">Seal Card</span>
         <div className="mt-2 space-y-1">
           <div className="hash-strip">proof id: {p.id}</div>
           <div className="hash-strip">envelope hash: {p.envelopeHash}</div>
-          <div className="hash-strip">signature: {p.signature?.slice(0, 26)}…</div>
+          {p.signature && <div className="hash-strip">signature: {p.signature?.slice(0, 26)}…</div>}
           <div className="hash-strip">submitter: {p.submitter}</div>
-          <div className="hash-strip">claim: {p.envelope?.claim}</div>
-          <div className="hash-strip">created: {p.createdAt}</div>
+          {p.envelope?.claim && <div className="hash-strip">claim: {p.envelope?.claim}</div>}
+          {p.submittedAt && <div className="hash-strip">submitted: {p.submittedAt}</div>}
           {p.txHash && (
             <div className="hash-strip">
               submit tx: <a href={p.explorerUrl} target="_blank" className="text-cyan2">{p.txHash}</a>
@@ -186,19 +223,26 @@ export default function Page() {
       {isDisputed && (
         <div className="glass-panel border-magma/60">
           <span className="section-label" style={{ color: "var(--magma)" }}>Dispute Open</span>
-          {p.disputeReason ? (
+          {onchainDispute ? (
+            <p className="text-sm text-bone mt-2 leading-relaxed whitespace-pre-wrap">
+              <span className="font-mono text-xs text-silver">REASON:</span>{" "}
+              {(() => {
+                try { return JSON.parse(onchainDispute.dispute_json)?.reason; } catch { return "—"; }
+              })()}
+            </p>
+          ) : p.disputeReason ? (
             <p className="text-sm text-bone mt-2 leading-relaxed whitespace-pre-wrap">
               <span className="font-mono text-xs text-silver">REASON:</span> {p.disputeReason}
             </p>
           ) : (
             <p className="text-xs text-silver mt-2">
-              Dispute reason isn&apos;t stored in this browser. Open the dispute tx on the explorer for the full payload.
+              Dispute reason on-chain — open the dispute tx on the explorer for the full payload.
             </p>
           )}
           <div className="mt-2 space-y-1 text-xs">
-            {p.disputeRaisedBy && <div className="hash-strip">raised by: {p.disputeRaisedBy}</div>}
-            {p.disputeRaisedAt && <div className="hash-strip">raised at: {p.disputeRaisedAt}</div>}
-            {p.disputeId && <div className="hash-strip">dispute id: {p.disputeId}</div>}
+            {onchainDispute?.raised_by && <div className="hash-strip">raised by: {onchainDispute.raised_by}</div>}
+            {onchainDispute?.raised_at && <div className="hash-strip">raised at: {onchainDispute.raised_at}</div>}
+            {onchainDispute?.dispute_id && <div className="hash-strip">dispute id: {onchainDispute.dispute_id}</div>}
             {p.disputeTxHash && (
               <div className="hash-strip">
                 dispute tx:{" "}
@@ -208,24 +252,39 @@ export default function Page() {
               </div>
             )}
           </div>
+
           {isResolved ? (
             <div className="mt-3 border border-lime2/40 p-3 rounded-sm bg-lime2/5">
               <span className="section-label" style={{ color: "var(--lime2)" }}>
-                Resolved · {p.disputeResolution.outcome}
+                Resolved on-chain · {resolution?.outcome || "—"}
               </span>
-              <p className="text-sm text-bone mt-1 whitespace-pre-wrap">{p.disputeResolution.notes}</p>
-              <div className="hash-strip mt-2">resolved by: {p.disputeResolution.resolved_by}</div>
-              <div className="hash-strip mt-1">resolved at: {p.disputeResolution.resolved_at}</div>
+              {resolution?.reason && (
+                <p className="text-sm text-bone mt-1 whitespace-pre-wrap">{resolution.reason}</p>
+              )}
+              {resolution && (
+                <div className="mt-2 space-y-1 text-xs font-mono">
+                  <div className="hash-strip">confidence: {resolution.confidence}</div>
+                  <div className="hash-strip">criteria: {resolution.criteria_result}</div>
+                  <div className="hash-strip">next action: {resolution.required_next_action}</div>
+                  <div className="hash-strip">evidence integrity: {resolution.evidence_integrity}</div>
+                </div>
+              )}
+              {onchainResolution?.resolved_by && (
+                <div className="hash-strip mt-2">resolved by: {onchainResolution.resolved_by}</div>
+              )}
+              {onchainResolution?.resolved_at && (
+                <div className="hash-strip mt-1">resolved at: {onchainResolution.resolved_at}</div>
+              )}
               <p className="text-[10px] font-mono text-silver mt-2">
-                Local-only acknowledgement. On-chain dispute record remains as the permanent audit trail.
+                Resolution stored on Studionet by GenLayer validators. Survives browser refresh and IndexedDB deletion.
               </p>
             </div>
           ) : (
             <>
               <p className="text-[10px] font-mono text-silver mt-3">
-                Dispute recorded on Studionet. Either party can mark it resolved here once an outcome is agreed off-chain.
+                Dispute recorded on Studionet. Either party can request GenLayer on-chain adjudication.
               </p>
-              {(isClient || isWorker) && (
+              {(isClient || isWorker || isPrivileged) && (
                 <button
                   onClick={() => setResolveOpen(!resolveOpen)}
                   className="btn-secondary mt-3"
@@ -235,7 +294,7 @@ export default function Page() {
               )}
               {resolveOpen && (
                 <div className="mt-3 border border-cyan2/40 p-3 rounded-sm bg-lens/60">
-                  <span className="section-label">Resolution outcome</span>
+                  <span className="section-label">Your requested outcome (GenLayer adjudicates)</span>
                   <div className="mt-2 grid grid-cols-3 gap-2">
                     {(["UPHELD", "REJECTED", "REVIEW_AGAIN"] as const).map((o) => (
                       <button key={o} type="button" onClick={() => setResolveOutcome(o)}
@@ -245,17 +304,17 @@ export default function Page() {
                     ))}
                   </div>
                   <p className="text-[10px] text-silver mt-2 font-mono">
-                    UPHELD = worker resubmits · REJECTED = milestone accepted · REVIEW_AGAIN = rerun review
+                    UPHELD = you believe worker should resubmit · REJECTED = you believe proof is valid · REVIEW_AGAIN = rerun review
                   </p>
                   <textarea
                     className="w-full mt-3 bg-[#0b1418] border border-cyan2/25 text-optic font-mono text-xs p-2 rounded-sm"
                     rows={3}
-                    placeholder="Resolution notes (what was decided and why)"
+                    placeholder="Your position and supporting context (GenLayer validators make the final call)"
                     value={resolveNotes}
                     onChange={(e) => setResolveNotes(e.target.value)}
                   />
-                  <button onClick={submitResolution} disabled={!resolveNotes.trim()} className="btn-seal mt-2 disabled:opacity-40">
-                    Record Resolution
+                  <button onClick={submitResolution} disabled={!resolveNotes.trim() || Boolean(busy)} className="btn-seal mt-2 disabled:opacity-40">
+                    {busy || "Adjudicate On-Chain"}
                   </button>
                 </div>
               )}
@@ -267,11 +326,6 @@ export default function Page() {
       {needsRevision && isWorker && c?.id && (
         <div className="glass-panel border-amber2/50">
           <span className="section-label" style={{ color: "var(--amber2)" }}>Revision Requested</span>
-          {p?.revisionReason && (
-            <p className="text-sm text-bone mt-2 leading-relaxed whitespace-pre-wrap">
-              <span className="font-mono text-xs text-silver">CLIENT NOTE:</span> {p.revisionReason}
-            </p>
-          )}
           <p className="text-xs text-silver mt-2">
             Submit a fresh proof packet that addresses the revision. The current proof will be marked SUPERSEDED on-chain.
           </p>
@@ -279,9 +333,9 @@ export default function Page() {
         </div>
       )}
 
-      {p.verdict ? (
+      {(p.verdict || p.onchainVerdictOutcome) ? (
         <VerdictLens
-          verdict={p.verdict}
+          verdict={p.verdict || { outcome: p.onchainVerdictOutcome, recommendedAction: p.onchainVerdictAction }}
           proofHash={p.envelopeHash}
           txHash={r?.txHash || p.reviewTxHash}
           explorerUrl={(r?.txHash || p.reviewTxHash) ? `${GENLAYER_STUDIONET.explorerUrl}/tx/${r?.txHash || p.reviewTxHash}` : undefined}

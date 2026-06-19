@@ -2,7 +2,8 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAccount, useSignTypedData } from "wagmi";
-import { getContract, putImage, putProof } from "@/src/lib/storage";
+import { putImage, putProof } from "@/src/lib/storage";
+import { fetchContract } from "@/src/lib/genlayer/queries";
 import { hashFile, sha256Hex } from "@/src/lib/hash";
 import { EIP712_DOMAIN, EIP712_TYPES, buildEnvelope, ProofEnvelope } from "@/src/lib/envelope";
 import { writeAndWait } from "@/src/lib/genlayer/client";
@@ -22,7 +23,7 @@ export default function Page() {
   const [note, setNote] = useState<string>("");
   const [busy, setBusy] = useState<string>("");
 
-  useEffect(() => { getContract(id).then(setC); }, [id]);
+  useEffect(() => { fetchContract(id).then(setC); }, [id]);
 
   async function pick(side: "before" | "after", f: File | null) {
     if (!f) return;
