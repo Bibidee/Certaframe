@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useAccount } from "wagmi";
 import { fetchProof, fetchContract, fetchReview, fetchDispute, fetchDisputeResolution, isKeeper, isAdmin } from "@/src/lib/genlayer/queries";
+import { getProof as getCachedProof } from "@/src/lib/storage";
 import { BeforeAfterFrame } from "@/components/BeforeAfterFrame";
 import { VerdictLens } from "@/components/VerdictLens";
 import { GENLAYER_STUDIONET, isContractConfigured } from "@/src/lib/genlayer/config";
@@ -59,8 +60,10 @@ export default function Page() {
   const [role, setRole] = useState<{ admin: boolean; keeper: boolean }>({ admin: false, keeper: false });
 
   async function refresh() {
-    const pr = await fetchProof(id);
-    setP(pr);
+    const [pr, cached] = await Promise.all([fetchProof(id), getCachedProof(id)]);
+    // Merge local cache for fields not stored on-chain (txHash, signature, envelope, metadata, etc.)
+    const merged = pr ? { ...cached, ...pr, txHash: pr.txHash || cached?.txHash, explorerUrl: pr.explorerUrl || cached?.explorerUrl, signature: cached?.signature, envelope: cached?.envelope, metadata: cached?.metadata } : cached;
+    setP(merged);
     if (pr) {
       const [cc, rr] = await Promise.all([fetchContract(pr.contractId), fetchReview(pr.id)]);
       setC(cc);

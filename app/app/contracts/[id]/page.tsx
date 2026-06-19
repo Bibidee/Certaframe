@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { fetchContract, fetchProofsForContract } from "@/src/lib/genlayer/queries";
+import { getContract as getCachedContract } from "@/src/lib/storage";
 import { GENLAYER_STUDIONET } from "@/src/lib/genlayer/config";
 
 export default function Page() {
@@ -13,8 +14,13 @@ export default function Page() {
 
   async function refresh() {
     setRefreshing(true);
-    const [cc, ps] = await Promise.all([fetchContract(id), fetchProofsForContract(id)]);
-    setC(cc); setProofs(ps);
+    const [cc, ps, cached] = await Promise.all([
+      fetchContract(id),
+      fetchProofsForContract(id),
+      getCachedContract(id),      // local cache for tx hash (not stored on-chain)
+    ]);
+    if (cc) setC({ txHash: cached?.txHash || "", explorerUrl: cached?.explorerUrl || "", ...cc });
+    setProofs(ps);
     setRefreshing(false);
   }
 
@@ -40,7 +46,7 @@ export default function Page() {
           {c.latestReviewOutcome && <span>LATEST VERDICT: <span className="text-cyan2">{c.latestReviewOutcome}</span></span>}
         </div>
         <div className="hash-strip mt-3">contract: {c.id}</div>
-        {c.contractHash && <div className="hash-strip mt-1">hash: {c.contractHash}</div>}
+        {c.contractHash && <div className="hash-strip mt-1">content hash: {c.contractHash}</div>}
         {c.txHash && (
           <div className="hash-strip mt-1">
             create tx:{" "}
