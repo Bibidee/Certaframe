@@ -81,22 +81,31 @@ export default function Page() {
     const proof = proofs.find((p) => p.id === selected);
     if (!proof) return;
 
+    try {
     setBusy("Loading images…");
-    const beforeBlob = proof.imageHashBundle.before ? await getImage(proof.imageHashBundle.before) : null;
-    const afterBlob = await getImage(proof.imageHashBundle.after);
+    const beforeHash = proof.imageHashBundle?.before || null;
+    const afterHash = proof.imageHashBundle?.after || null;
+    const beforeBlob = beforeHash ? await getImage(beforeHash) : null;
+    const afterBlob = afterHash ? await getImage(afterHash) : null;
     const toB64 = async (b: Blob | null) => b ? await new Promise<string>((res) => {
       const r = new FileReader(); r.onloadend = () => res(r.result as string); r.readAsDataURL(b);
     }) : null;
     const beforeB64 = await toB64(beforeBlob);
     const afterB64 = await toB64(afterBlob);
 
-    const beforeRef = proof.imageHashBundle.before
-      ? `sha256:${proof.imageHashBundle.before} — before evidence submitted by worker ${proof.submitter} at ${proof.envelope.createdAt}`
+    // envelope fields may be absent when proof was read from chain (not local cache).
+    const submittedAt = proof.submittedAt || proof.envelope?.createdAt || "unknown";
+    const claim = proof.envelope?.claim || "(no claim text — envelope not in local cache)";
+
+    const beforeRef = beforeHash
+      ? `sha256:${beforeHash} — before evidence submitted by worker ${proof.submitter} at ${submittedAt}`
       : "no before image submitted";
-    const afterRef = proof.imageHashBundle.after
-      ? `sha256:${proof.imageHashBundle.after} — after evidence submitted by worker ${proof.submitter} at ${proof.envelope.createdAt} with claim: ${proof.envelope.claim}`
+    const afterRef = afterHash
+      ? `sha256:${afterHash} — after evidence submitted by worker ${proof.submitter} at ${submittedAt} with claim: ${claim}`
       : "no after image submitted";
-    const metadataRef = `sha256:${proof.imageHashBundle.metadata} — metadata summary captured at ${proof.metadata?.capturedAt}`;
+    const metadataRef = proof.imageHashBundle?.metadata
+      ? `sha256:${proof.imageHashBundle.metadata} — metadata captured at ${proof.metadata?.capturedAt || submittedAt}`
+      : "no metadata hash";
 
     const reviewPayload = {
       proof_id: proof.id,
@@ -104,17 +113,17 @@ export default function Page() {
       task_description: c.description,
       acceptance_criteria: c.acceptanceCriteria,
       strictness: c.strictness,
-      claim: proof.envelope.claim,
+      claim,
       submitter: proof.submitter,
-      created_at: proof.envelope.createdAt,
+      created_at: submittedAt,
       before_image_reference: beforeRef,
       before_image_description: beforeRef,
       after_image_reference: afterRef,
       after_image_description: afterRef,
       metadata_reference: metadataRef,
       metadata_description: metadataRef,
-      envelope_summary: { submitter: proof.submitter, claim: proof.envelope.claim, created_at: proof.envelope.createdAt },
-      metadata_summary: proof.metadata,
+      envelope_summary: { submitter: proof.submitter, claim, created_at: submittedAt },
+      metadata_summary: proof.metadata || null,
       before_image_data_url: beforeB64,
       after_image_data_url: afterB64,
       has_before: Boolean(beforeB64),
@@ -173,6 +182,10 @@ export default function Page() {
     } catch (e: any) {
       setBusy("");
       setError("On-chain review failed: " + (e?.shortMessage || e?.message || String(e)));
+    }
+    } catch (e: any) {
+      setBusy("");
+      setError("Review preparation failed: " + (e?.shortMessage || e?.message || String(e)));
     }
   }
 
