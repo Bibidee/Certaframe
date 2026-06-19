@@ -627,6 +627,44 @@ class CertaFrameVerifier(gl.Contract):
         return verdict
 
     @gl.public.write
+    def confirm_milestone(self, contract_id: str) -> str:
+        _require(_is_nonempty_str(contract_id), "contract_id_required")
+        contract = self._get_contract_required(contract_id)
+        _require(contract.get("status", "") == "ACCEPTED", "contract_must_be_accepted_to_confirm_milestone")
+        caller = _sender()
+        client = _addr(contract.get("client", ""))
+        _require(caller == client or self._is_admin(caller) or self._is_keeper_addr(caller), "only_client_admin_or_keeper_can_confirm_milestone")
+        contract["status"] = "CLOSED"
+        contract["confirmed_by"] = caller
+        contract["confirmed_at"] = _now_iso()
+        self.contracts[contract_id] = _json_dumps(contract)
+        return contract_id
+
+    @gl.public.write
+    def request_revision(self, contract_id: str, proof_id: str, reason: str) -> str:
+        _require(_is_nonempty_str(contract_id), "contract_id_required")
+        _require(_is_nonempty_str(reason), "revision_reason_required")
+        contract = self._get_contract_required(contract_id)
+        status = contract.get("status", "")
+        _require(
+            status in ("ACCEPTED", "PROOF_SUBMITTED", "UNDER_REVIEW", "REVISION_REQUESTED"),
+            "contract_not_in_revisable_state",
+        )
+        caller = _sender()
+        client = _addr(contract.get("client", ""))
+        _require(caller == client or self._is_admin(caller) or self._is_keeper_addr(caller), "only_client_admin_or_keeper_can_request_revision")
+        contract["status"] = "REVISION_REQUESTED"
+        contract["revision_reason"] = str(reason).strip()[:800]
+        contract["revision_requested_by"] = caller
+        contract["revision_requested_at"] = _now_iso()
+        self.contracts[contract_id] = _json_dumps(contract)
+        if _is_nonempty_str(proof_id) and proof_id in self.proofs:
+            proof = _json_loads_object(self.proofs[proof_id], "stored_proof_corrupted")
+            proof["revision_reason"] = str(reason).strip()[:800]
+            self.proofs[proof_id] = _json_dumps(proof)
+        return contract_id
+
+    @gl.public.write
     def close_contract(self, contract_id: str, close_reason: str) -> str:
         self._require_admin_or_keeper()
         _require(_is_nonempty_str(contract_id), "contract_id_required")

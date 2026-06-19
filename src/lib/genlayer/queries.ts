@@ -70,6 +70,10 @@ function normalizeContractRecord(onchain: any): any | null {
     latestRecommendedAction: onchain.latest_recommended_action || "",
     createdAt: onchain.created_at || payload.created_at,
     createdBy: onchain.created_by,
+    revisionReason: onchain.revision_reason || "",
+    revisionRequestedBy: onchain.revision_requested_by || "",
+    confirmedBy: onchain.confirmed_by || "",
+    confirmedAt: onchain.confirmed_at || "",
   };
 }
 

@@ -90,24 +90,37 @@ export default function Page() {
   const isWorker = address && c?.worker && address.toLowerCase() === c.worker.toLowerCase();
   const isPrivileged = role.admin || role.keeper;
   // On-chain state is authoritative for these flags.
-  const isAccepted = c?.status === "ACCEPTED";
+  const isAccepted = c?.status === "ACCEPTED" || c?.status === "CLOSED";
   const isDisputed = p?.status === "DISPUTED" || c?.status === "DISPUTED" || onchainDispute?.status === "OPEN" || onchainDispute?.status === "RESOLVED";
   const isResolved = onchainDispute?.status === "RESOLVED" || onchainResolution != null;
   const needsRevision = c?.status === "REVISION_REQUESTED";
 
   async function confirmMilestone() {
     if (!isClient && !isPrivileged) return alert("Only the client (or admin/keeper) can confirm the milestone.");
-    setBusy("Refreshing on-chain status…"); setMsg("");
-    await refresh();
-    setBusy(""); setMsg("Milestone status synced from chain.");
+    if (!c?.id) return;
+    setBusy("Confirming milestone on-chain…"); setMsg("");
+    try {
+      await writeAndWait("confirm_milestone", [c.id]);
+      setBusy(""); setMsg("Milestone confirmed. Contract closed on-chain.");
+      refresh();
+    } catch (e: any) {
+      setBusy(""); setMsg("Confirm failed: " + (e?.shortMessage || e?.message || String(e)));
+    }
   }
 
   async function submitRevision() {
     if (!isClient && !isPrivileged) return alert("Only the client (or admin/keeper) can request revision.");
     if (!revisionText.trim()) return;
-    setRevisionOpen(false); setRevisionText("");
-    setMsg("Revision noted. Contract status is set by the review verdict on-chain — worker can resubmit.");
-    await refresh();
+    if (!c?.id) return;
+    setBusy("Recording revision request on-chain…"); setMsg("");
+    try {
+      await writeAndWait("request_revision", [c.id, p?.id || "", revisionText.trim()]);
+      setRevisionOpen(false); setRevisionText("");
+      setBusy(""); setMsg("Revision request recorded on-chain. Worker can now resubmit.");
+      refresh();
+    } catch (e: any) {
+      setBusy(""); setMsg("Revision request failed: " + (e?.shortMessage || e?.message || String(e)));
+    }
   }
 
   async function submitDispute() {
@@ -326,6 +339,11 @@ export default function Page() {
       {needsRevision && isWorker && c?.id && (
         <div className="glass-panel border-amber2/50">
           <span className="section-label" style={{ color: "var(--amber2)" }}>Revision Requested</span>
+          {c.revisionReason && (
+            <p className="text-sm text-bone mt-2 leading-relaxed whitespace-pre-wrap">
+              <span className="font-mono text-xs text-silver">CLIENT NOTE:</span> {c.revisionReason}
+            </p>
+          )}
           <p className="text-xs text-silver mt-2">
             Submit a fresh proof packet that addresses the revision. The current proof will be marked SUPERSEDED on-chain.
           </p>
