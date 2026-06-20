@@ -25,10 +25,10 @@ export default function Page() {
   useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [address]);
 
   const myActive = contracts.filter((c) => c.status === "ACTIVE").length;
-  const myAwaiting = contracts.filter((c) => c.status === "PROOF_SUBMITTED").length;
-  const myAccepted = contracts.filter((c) => c.status === "ACCEPTED").length;
-  const myRevisions = contracts.filter((c) => c.status === "REVISION_REQUESTED").length;
-  const myDisputes = contracts.filter((c) => c.status === "DISPUTED").length;
+  const myAwaiting = contracts.filter((c) => c.status === "PROOF_SUBMITTED" || c.status === "UNDER_REVIEW").length;
+  const myAccepted = contracts.filter((c) => c.status === "ACCEPTED" || c.status === "CLOSED").length;
+  const myRevisions = contracts.filter((c) => c.status === "REVISION_REQUESTED" || c.status === "INSUFFICIENT_EVIDENCE").length;
+  const myDisputes = contracts.filter((c) => c.status === "DISPUTED" || c.status === "ESCALATED").length;
 
   // Inbox: contracts where I am client and proof is awaiting my review.
   const awaitingMine = address
@@ -101,7 +101,8 @@ export default function Page() {
         <Stat label="Protocol Proofs" value={stats?.proofs ?? "—"} color="var(--cyan2)" />
       </div>
 
-      {stats && (
+      {/* Protocol Totals panel — hidden from UI, data still fetched */}
+      {false && stats && (
         <div className="glass-panel mb-8">
           <span className="section-label">Protocol Totals · live from CertaFrameVerifier</span>
           <div className="grid md:grid-cols-4 lg:grid-cols-8 gap-3 mt-3 text-xs font-mono">
@@ -109,7 +110,7 @@ export default function Page() {
             <Mini label="Proofs" v={stats.proofs} />
             <Mini label="Reviews" v={stats.reviews} />
             <Mini label="Disputes" v={stats.disputes} />
-            <Mini label="Accept" v={stats.accept} c="var(--lime2)" />
+            <Mini label="Verified" v={stats.verified} c="var(--lime2)" />
             <Mini label="Revision" v={stats.revision} c="var(--amber2)" />
             <Mini label="Insufficient" v={stats.insufficient} c="var(--amber2)" />
             <Mini label="Escalate" v={stats.escalate} c="var(--uv)" />

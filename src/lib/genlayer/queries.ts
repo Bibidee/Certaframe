@@ -16,8 +16,11 @@ function safeJson(raw: any) {
 
 export type ProtocolStats = {
   contracts: number; proofs: number; reviews: number; disputes: number;
-  accept: number; revision: number; insufficient: number;
-  mismatch: number; manipulation: number; escalate: number; keepers: number;
+  verified: number; verified_with_notes: number; revision: number;
+  insufficient: number; rejected: number; escalate: number;
+  undetermined: number; keepers: number;
+  // legacy fields from pre-v0.2.20 contracts
+  accept?: number; mismatch?: number; manipulation?: number;
 };
 
 export async function fetchProtocolStats(): Promise<ProtocolStats | null> {
