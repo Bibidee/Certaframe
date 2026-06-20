@@ -1,23 +1,16 @@
 # CertaFrame
 
-**GenLayer-native multimodal performance proof protocol.**
+**On-chain visual proof verification protocol built on GenLayer.**
 
-> Hashes prove what was submitted. Signatures prove who submitted it. GenLayer judges whether the submitted visual proof satisfies the task.
+> CertaFrame is an on-chain visual proof verification protocol built on GenLayer. It lets clients and workers create performance-based task contracts where completion is verified by GenLayer's nondeterministic AI validators, not human judgment or centralized servers. Workers submit cryptographic proof packets (before/after image hashes and signed envelopes). Validators run a visual review and return a structured verdict (VERIFIED, REVISION_REQUIRED, ESCALATED, etc.). Disputes are adjudicated fully on-chain by the same validator network. All state including contracts, proofs, reviews, disputes, and resolutions lives in the CertaFrameVerifier intelligent contract on Studionet. IndexedDB is cache only. The result is a tamper-resistant trust-minimized milestone payment rail where the AI is the arbitrator.
 
-CertaFrame is a Next.js 15 dApp on GenLayer Studionet where:
+**GitHub:** https://github.com/Bibidee/Certaframe
 
-- a client defines a visual task contract and acceptance criteria,
-- a worker uploads before/after evidence and signs an EIP-712 proof envelope,
-- the `CertaFrameVerifier` intelligent contract stores the proof commitment,
-- GenLayer validators perform a multimodal review of the visual evidence,
-- the contract stores a structured verdict that the UI maps to an action.
+---
 
 ## Why GenLayer
 
-Visual task completion is non-deterministic. A traditional smart contract can store
-a photo hash but cannot decide whether a wall is actually painted, whether before
-and after images show the same site, or whether evidence is sufficient. CertaFrame
-delegates that judgement to GenLayer validator consensus.
+Visual task completion is non-deterministic. A traditional smart contract can store a photo hash but cannot decide whether a wall is actually painted, whether before and after images show the same site, or whether evidence is sufficient. CertaFrame delegates that judgement to GenLayer validator consensus.
 
 ## What is proven vs. judged
 
@@ -29,30 +22,44 @@ delegates that judgement to GenLayer validator consensus.
 | Review result is linked to a specific proof hash | Work was safe or legal |
 | | Task is fully complete outside the camera frame |
 
-Provenance metadata (C2PA / Content Credentials) is useful but is **not** performance
-proof. CertaFrame separates the *provenance* question (was the media signed and
-traceable?) from the *performance* question (does it satisfy the task?). GenLayer
-handles the second.
+## Verdict outcomes
+
+| Outcome | Meaning | Contract status |
+|---|---|---|
+| VERIFIED | Evidence substantially satisfies criteria | ACCEPTED |
+| VERIFIED_WITH_NOTES | Accepted with minor observations | ACCEPTED |
+| REVISION_REQUIRED | Incomplete or unclear evidence | REVISION_REQUESTED |
+| INSUFFICIENT_EVIDENCE | Cannot judge from submitted evidence | INSUFFICIENT_EVIDENCE |
+| REJECTED | Evidence clearly fails criteria | REVISION_REQUESTED |
+| ESCALATED | Requires human or regulated review | ESCALATED |
+| UNDETERMINED | Genuinely impossible to judge | ESCALATED |
 
 ## This is not legal certification
 
-CertaFrame provides AI-consensus review of submitted visual evidence. It does not
-guarantee authenticity, legality, safety compliance, or full real-world completion
-outside the submitted evidence. Do not use it as the only inspection mechanism for
-safety-critical work, regulated compliance, medical evidence, law enforcement, or
-structural engineering certification.
+CertaFrame provides AI-consensus review of submitted visual evidence. It does not guarantee authenticity, legality, safety compliance, or full real-world completion outside the submitted evidence. Do not use it as the only inspection mechanism for safety-critical work, regulated compliance, medical evidence, law enforcement, or structural engineering certification.
 
 ## Stack
 
 - Next.js 15 (App Router), TypeScript strict
 - Tailwind (custom Forensic Field Glass palette)
 - wagmi + viem + injected wallet connector
-- GenLayer JS SDK (`genlayer-js` 1.2+) targeting Studionet (chain 61999)
+- GenLayer JS SDK (`genlayer-js` 1.1.8) targeting Studionet (chain 61999)
 - Zod, Framer Motion, Lucide React, date-fns
-- IndexedDB (idb) for local proof storage, Web Crypto for SHA-256
+- IndexedDB (idb) for local image cache only — chain is source of truth
+- Web Crypto API for SHA-256 hashing
 - npm only
 
-No Privy, no embedded email wallet, no WalletConnect.
+No Privy, no embedded email wallet, no WalletConnect, no fake verdicts.
+
+## Contract
+
+`contracts/CertaFrameVerifier.py` is the GenLayer intelligent contract deployed at `0x794552660CC39a89F044194F22a825a005b01075` on Studionet.
+
+Write methods: `create_contract`, `submit_proof_commitment`, `review_visual_proof`, `record_dispute`, `resolve_dispute`, `confirm_milestone`, `request_revision`, `close_contract`
+
+View methods: `get_contract`, `get_proof`, `get_review`, `get_dispute`, `get_resolution`, `get_contract_proofs`, `get_user_contracts`, `get_protocol_stats`, `is_keeper`, `get_admin`
+
+`review_visual_proof` and `resolve_dispute` are the nondeterministic methods — they run AI prompts through GenLayer validator consensus and converge on a structured verdict.
 
 ## Setup
 
@@ -67,49 +74,29 @@ npm run dev
 
 ```env
 NEXT_PUBLIC_APP_NAME=CertaFrame
-NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS=
+NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS=0x794552660CC39a89F044194F22a825a005b01075
 NEXT_PUBLIC_GENLAYER_CHAIN_ID=61999
 NEXT_PUBLIC_GENLAYER_RPC_URL=https://studio.genlayer.com/api
 NEXT_PUBLIC_GENLAYER_EXPLORER_URL=https://explorer-studio.genlayer.com
 NEXT_PUBLIC_STORAGE_MODE=local
 NEXT_PUBLIC_USE_LOCAL_STORAGE=true
-PINATA_JWT=
-CLOUDFLARE_R2_BUCKET=
 ```
-
-If the contract address is missing the dashboard shows:
-
-```
-GenLayer contract is not configured yet.
-Deploy CertaFrameVerifier and add NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS to enable live visual proof review.
-```
-
-## Contract
-
-`contracts/CertaFrameVerifier.py` is the GenLayer intelligent contract. Deterministic
-methods record contracts, proof commitments, disputes, and protocol stats.
-`review_visual_proof` is the non-deterministic GenLayer method — it runs the
-multimodal prompt against the before/after images and converges validators on the
-structured verdict fields (`outcome`, `taskCompletion`, `visualContinuity`,
-`recommendedAction`). Reasoning may vary across validators.
 
 ## Demo flow
 
-1. Land on homepage, connect injected wallet.
-2. Create a visual task contract with acceptance criteria.
-3. Open the contract, click **Submit Proof**.
-4. Upload before + after images; SHA-256 hashes appear under each frame.
-5. Sign the EIP-712 proof envelope.
-6. Open **Run Visual Review** (client/keeper/admin).
-7. Verdict Lens shows outcome, confidence, criteria matched/unclear, risk flags, recommended action.
-8. Inspect the full evidence trace in **Evidence Console**.
-
-No fake review results are shown anywhere; the only illustrative content is clearly
-labelled frames on the landing page.
+1. Connect injected wallet (MetaMask on GenLayer Studionet chain 61999).
+2. Create a visual task contract with title, description, and acceptance criteria.
+3. Worker opens the contract and clicks **Submit Proof** — uploads before and after images, signs EIP-712 proof envelope.
+4. Client opens **Run Visual Review** — GenLayer validators assess the evidence (30-90s).
+5. Verdict Lens displays outcome, confidence, criteria matched/unclear, risk flags, and recommended action.
+6. Client clicks **Confirm Milestone** to close the contract on-chain, or **Request Revision** to send the worker back.
+7. Either party can **Open Dispute** — resolved on-chain by GenLayer adjudication via `resolve_dispute`.
+8. All tx hashes link to the GenLayer Studio Explorer.
 
 ## Build
 
 ```bash
 npm run build
 npm run lint
+npm run test:smoke   # read-path smoke test against deployed contract
 ```
