@@ -102,21 +102,6 @@ export default function Page() {
       </div>
 
       {/* Protocol Totals panel — hidden from UI, data still fetched */}
-      {false && stats && (
-        <div className="glass-panel mb-8">
-          <span className="section-label">Protocol Totals · live from CertaFrameVerifier</span>
-          <div className="grid md:grid-cols-4 lg:grid-cols-8 gap-3 mt-3 text-xs font-mono">
-            <Mini label="Contracts" v={stats.contracts} />
-            <Mini label="Proofs" v={stats.proofs} />
-            <Mini label="Reviews" v={stats.reviews} />
-            <Mini label="Disputes" v={stats.disputes} />
-            <Mini label="Verified" v={stats.verified} c="var(--lime2)" />
-            <Mini label="Revision" v={stats.revision} c="var(--amber2)" />
-            <Mini label="Insufficient" v={stats.insufficient} c="var(--amber2)" />
-            <Mini label="Escalate" v={stats.escalate} c="var(--uv)" />
-          </div>
-        </div>
-      )}
 
       <span className="section-label">My Capsules</span>
       <div className="mt-3 grid md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -139,15 +124,6 @@ function Stat({ label, value, color }: { label: string; value: any; color?: stri
     <div className="glass-panel">
       <span className="section-label">{label}</span>
       <p className="font-display text-3xl mt-1" style={{ color: color || "var(--optic)" }}>{value}</p>
-    </div>
-  );
-}
-
-function Mini({ label, v, c }: { label: string; v: number; c?: string }) {
-  return (
-    <div className="border border-cyan2/15 p-2 rounded-sm">
-      <div className="text-[10px] uppercase tracking-widest text-silver">{label}</div>
-      <div className="font-display text-xl" style={{ color: c || "var(--optic)" }}>{v}</div>
     </div>
   );
 }
