@@ -30,7 +30,7 @@ export function VerdictLens({ verdict, proofHash, txHash }: {
         <div className="mb-4">
           <span className="section-label">Risk Flags</span>
           <div className="mt-2 flex flex-wrap gap-2">
-            {verdict.riskFlags.map((r) => <span key={r} className="crack-mark">{r}</span>)}
+            {verdict.riskFlags.map((r: string) => <span key={r} className="crack-mark">{r}</span>)}
           </div>
         </div>
       )}
