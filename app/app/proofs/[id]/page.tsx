@@ -93,7 +93,8 @@ export default function Page() {
   const isWorker = address && c?.worker && address.toLowerCase() === c.worker.toLowerCase();
   const isPrivileged = role.admin || role.keeper;
   // On-chain state is authoritative for these flags.
-  const isAccepted = c?.status === "ACCEPTED" || c?.status === "CLOSED";
+  const isAccepted = c?.status === "ACCEPTED";
+  const isClosed = c?.status === "CLOSED";
   const isDisputed = p?.status === "DISPUTED" || c?.status === "DISPUTED" || onchainDispute?.status === "OPEN" || onchainDispute?.status === "RESOLVED";
   const isResolved = onchainDispute?.status === "RESOLVED" || onchainResolution != null;
   const needsRevision = c?.status === "REVISION_REQUESTED";
@@ -380,8 +381,8 @@ export default function Page() {
                   "Connect the client / admin / keeper wallet to confirm or request revision."}
             </p>
             <div className="flex gap-3 mt-3 flex-wrap">
-              <button onClick={confirmMilestone} disabled={(!isClient && !isPrivileged) || Boolean(busy) || isAccepted} className="btn-seal disabled:opacity-40">
-                {isAccepted ? "Milestone Confirmed ✓" : busy || "Confirm Milestone"}
+              <button onClick={confirmMilestone} disabled={(!isClient && !isPrivileged) || Boolean(busy) || isClosed} className="btn-seal disabled:opacity-40">
+                {isClosed ? "Milestone Confirmed ✓" : busy || "Confirm Milestone"}
               </button>
               <button onClick={() => { setRevisionOpen(true); setDisputeOpen(false); }} disabled={(!isClient && !isPrivileged) || Boolean(busy)} className="btn-secondary disabled:opacity-40">
                 Request Revision
