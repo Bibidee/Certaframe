@@ -121,9 +121,9 @@ export default function Page() {
 
 function Stat({ label, value, color }: { label: string; value: any; color?: string }) {
   return (
-    <div className="glass-panel">
-      <span className="section-label">{label}</span>
-      <p className="font-display text-3xl mt-1" style={{ color: color || "var(--optic)" }}>{value}</p>
+    <div className="glass-panel flex flex-col justify-between min-h-[88px]">
+      <span className="section-label leading-tight">{label}</span>
+      <p className="font-display text-4xl mt-2" style={{ color: color || "var(--optic)" }}>{value}</p>
     </div>
   );
 }
