@@ -6,6 +6,9 @@ export function VerdictLens({ verdict, proofHash, txHash }: {
 }) {
   const meta = OUTCOME_META[verdict.outcome] || OUTCOME_META.UNDETERMINED;
   const explorerUrl = txHash ? getGenlayerExplorerTxUrl(txHash) : undefined;
+  const riskFlags: string[] = Array.isArray(verdict.riskFlags) ? verdict.riskFlags : [];
+  const confidence = typeof verdict.confidence === "number" ? verdict.confidence : null;
+
   return (
     <div className="glass-panel">
       <div className="flex justify-between items-start mb-4">
@@ -14,30 +17,36 @@ export function VerdictLens({ verdict, proofHash, txHash }: {
           <h2 className="font-display text-4xl mt-1" style={{ color: meta.color }}>{verdict.outcome}</h2>
           <p className="text-sm text-silver mt-1">{meta.label}</p>
         </div>
-        <div className="text-right">
-          <span className="section-label">Confidence</span>
-          <p className="font-mono text-3xl text-optic">{(verdict.confidence * 100).toFixed(0)}%</p>
+        {confidence !== null && (
+          <div className="text-right">
+            <span className="section-label">Confidence</span>
+            <p className="font-mono text-3xl text-optic">{(confidence * 100).toFixed(0)}%</p>
+          </div>
+        )}
+      </div>
+      {(verdict.visualContinuity || verdict.taskCompletion || verdict.recommendedAction) && (
+        <div className="grid md:grid-cols-3 gap-3 mb-4">
+          {verdict.visualContinuity && <Stat label="Visual Continuity" value={verdict.visualContinuity} />}
+          {verdict.taskCompletion && <Stat label="Task Completion" value={verdict.taskCompletion} />}
+          {verdict.recommendedAction && <Stat label="Recommended Action" value={verdict.recommendedAction} />}
         </div>
-      </div>
-      <div className="grid md:grid-cols-3 gap-3 mb-4">
-        <Stat label="Visual Continuity" value={verdict.visualContinuity} />
-        <Stat label="Task Completion" value={verdict.taskCompletion} />
-        <Stat label="Recommended Action" value={verdict.recommendedAction} />
-      </div>
+      )}
       <CriteriaList title="Criteria Matched" items={verdict.criteriaMatched} color="var(--lime2)" />
       <CriteriaList title="Criteria Unclear" items={verdict.criteriaUnclear} color="var(--amber2)" />
-      {verdict.riskFlags.length > 0 && (
+      {riskFlags.length > 0 && (
         <div className="mb-4">
           <span className="section-label">Risk Flags</span>
           <div className="mt-2 flex flex-wrap gap-2">
-            {verdict.riskFlags.map((r: string) => <span key={r} className="crack-mark">{r}</span>)}
+            {riskFlags.map((r: string) => <span key={r} className="crack-mark">{r}</span>)}
           </div>
         </div>
       )}
-      <div className="mb-4">
-        <span className="section-label">Reasoning</span>
-        <p className="mt-1 text-sm text-optic leading-relaxed">{verdict.reasoning}</p>
-      </div>
+      {verdict.reasoning && (
+        <div className="mb-4">
+          <span className="section-label">Reasoning</span>
+          <p className="mt-1 text-sm text-optic leading-relaxed">{verdict.reasoning}</p>
+        </div>
+      )}
       <div className="grid md:grid-cols-3 gap-2 text-[10px]">
         {proofHash && <div className="hash-strip">proof: {proofHash}</div>}
         {txHash && <div className="hash-strip">tx: {txHash}</div>}
@@ -56,8 +65,8 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function CriteriaList({ title, items, color }: { title: string; items: string[]; color: string }) {
-  if (!items.length) return null;
+function CriteriaList({ title, items, color }: { title: string; items?: string[]; color: string }) {
+  if (!Array.isArray(items) || items.length === 0) return null;
   return (
     <div className="mb-4">
       <span className="section-label">{title}</span>
