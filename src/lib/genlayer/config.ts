@@ -9,5 +9,9 @@ export const GENLAYER_STUDIONET = {
 export const CONTRACT_ADDRESS = process.env.NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS || "";
 export const isContractConfigured = () => Boolean(CONTRACT_ADDRESS);
 
+export function getGenlayerExplorerTxUrl(txHash: string): string {
+  return `${GENLAYER_STUDIONET.explorerUrl}/tx/${txHash}`;
+}
+
 export const CONTRACT_MISSING_MESSAGE =
   "GenLayer contract is not configured yet.\nDeploy CertaFrameVerifier and add NEXT_PUBLIC_GENLAYER_CONTRACT_ADDRESS to enable live visual proof review.";

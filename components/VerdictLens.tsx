@@ -1,9 +1,11 @@
-import { Verdict, OUTCOME_META } from "@/src/lib/verdict";
+import { OUTCOME_META } from "@/src/lib/verdict";
+import { getGenlayerExplorerTxUrl } from "@/src/lib/genlayer/config";
 
-export function VerdictLens({ verdict, proofHash, txHash, explorerUrl }: {
-  verdict: Verdict; proofHash?: string; txHash?: string; explorerUrl?: string;
+export function VerdictLens({ verdict, proofHash, txHash }: {
+  verdict: Record<string, any>; proofHash?: string; txHash?: string;
 }) {
-  const meta = OUTCOME_META[verdict.outcome];
+  const meta = OUTCOME_META[verdict.outcome] || OUTCOME_META.UNDETERMINED;
+  const explorerUrl = txHash ? getGenlayerExplorerTxUrl(txHash) : undefined;
   return (
     <div className="glass-panel">
       <div className="flex justify-between items-start mb-4">

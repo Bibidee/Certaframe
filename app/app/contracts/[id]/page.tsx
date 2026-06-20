@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { fetchContract, fetchProofsForContract } from "@/src/lib/genlayer/queries";
 import { getContract as getCachedContract } from "@/src/lib/storage";
-import { GENLAYER_STUDIONET } from "@/src/lib/genlayer/config";
+import { getGenlayerExplorerTxUrl } from "@/src/lib/genlayer/config";
 
 export default function Page() {
   const { id } = useParams<{ id: string }>();
@@ -51,7 +51,7 @@ export default function Page() {
           <div className="hash-strip mt-1">
             create tx:{" "}
             <a
-              href={c.explorerUrl || `${GENLAYER_STUDIONET.explorerUrl}/tx/${c.txHash}`}
+              href={c.explorerUrl || getGenlayerExplorerTxUrl(c.txHash)}
               target="_blank"
               rel="noopener noreferrer"
               className="text-cyan2 underline"

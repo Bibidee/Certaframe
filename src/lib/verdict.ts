@@ -1,9 +1,9 @@
 import { z } from "zod";
 
-export const OUTCOMES = ["ACCEPT", "REQUEST_REVISION", "INSUFFICIENT_EVIDENCE", "POSSIBLE_MISMATCH", "POSSIBLE_MANIPULATION", "ESCALATE_TO_HUMAN"] as const;
+export const OUTCOMES = ["VERIFIED", "VERIFIED_WITH_NOTES", "REVISION_REQUIRED", "INSUFFICIENT_EVIDENCE", "REJECTED", "ESCALATED", "UNDETERMINED"] as const;
 export const CONTINUITY = ["LIKELY_SAME_SITE", "UNCLEAR", "LIKELY_DIFFERENT_SITE"] as const;
 export const COMPLETION = ["COMPLETE", "PARTIAL", "NOT_SHOWN", "UNCLEAR"] as const;
-export const ACTIONS = ["confirm_milestone", "keep_pending", "request_more_evidence", "escalate"] as const;
+export const ACTIONS = ["confirm_milestone", "keep_pending", "request_revision", "request_more_evidence", "escalate"] as const;
 
 export const VerdictSchema = z.object({
   outcome: z.enum(OUTCOMES),
@@ -25,10 +25,11 @@ export function validateVerdict(raw: unknown): { ok: true; verdict: Verdict } | 
 }
 
 export const OUTCOME_META: Record<string, { label: string; color: string; action: string }> = {
-  ACCEPT: { label: "Evidence likely satisfies task", color: "#B9FF2C", action: "confirm milestone" },
-  REQUEST_REVISION: { label: "Work partly done or image unclear", color: "#FFB000", action: "ask worker to resubmit" },
-  INSUFFICIENT_EVIDENCE: { label: "Cannot judge from evidence", color: "#FFB000", action: "request more proof" },
-  POSSIBLE_MISMATCH: { label: "Images may not show same site", color: "#FF3D2E", action: "open dispute" },
-  POSSIBLE_MANIPULATION: { label: "Manipulation/staging concern", color: "#D93600", action: "escalate" },
-  ESCALATE_TO_HUMAN: { label: "Too much ambiguity", color: "#8B5CF6", action: "manual review" },
+  VERIFIED: { label: "Evidence substantially satisfies task", color: "#B9FF2C", action: "confirm milestone" },
+  VERIFIED_WITH_NOTES: { label: "Verified with minor observations noted", color: "#E0C050", action: "confirm milestone" },
+  REVISION_REQUIRED: { label: "Work partly done — more evidence needed", color: "#FFB000", action: "request revision" },
+  INSUFFICIENT_EVIDENCE: { label: "Cannot judge from submitted evidence", color: "#FFB000", action: "request more proof" },
+  REJECTED: { label: "Evidence does not meet criteria", color: "#FF3D2E", action: "escalate" },
+  ESCALATED: { label: "Requires human or regulated review", color: "#8B5CF6", action: "escalate" },
+  UNDETERMINED: { label: "Genuinely impossible to judge", color: "#A0A0A0", action: "escalate" },
 };

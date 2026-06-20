@@ -29,12 +29,13 @@ ALLOWED_PROOF_STATUS = (
 )
 
 ALLOWED_OUTCOMES = (
-    "ACCEPT",
-    "REQUEST_REVISION",
+    "VERIFIED",
+    "VERIFIED_WITH_NOTES",
+    "REVISION_REQUIRED",
     "INSUFFICIENT_EVIDENCE",
-    "POSSIBLE_MISMATCH",
-    "POSSIBLE_MANIPULATION",
-    "ESCALATE_TO_HUMAN",
+    "REJECTED",
+    "ESCALATED",
+    "UNDETERMINED",
 )
 
 ALLOWED_CONTINUITY = (
@@ -53,6 +54,7 @@ ALLOWED_COMPLETION = (
 ALLOWED_ACTIONS = (
     "confirm_milestone",
     "keep_pending",
+    "request_revision",
     "request_more_evidence",
     "escalate",
 )
@@ -121,8 +123,8 @@ performance-based task contracts.
 
 Your job:
 Compare the task contract, acceptance criteria, before evidence, after evidence,
-and supporting proof metadata. Judge whether the submitted evidence reasonably
-shows the claimed task completion.
+and supporting proof metadata. Judge whether the submitted evidence shows
+substantial satisfaction of the claimed task completion.
 
 Important limits:
 - Do not simply describe the images.
@@ -131,17 +133,18 @@ Important limits:
   financial compliance, or regulated inspection.
 - Do not assume facts not visible or provided.
 - Do not overclaim.
-- If the evidence is ambiguous, request revision or escalate.
-- If before/after continuity is weak, flag mismatch risk.
-- If staging, editing, inconsistency, or manipulation is suspected, flag manipulation risk.
 - Judge only the submitted evidence against the stated task criteria.
-- Return strict JSON only.
-- No markdown.
-- No commentary outside JSON.
+- Return strict JSON only. No markdown. No commentary outside JSON.
+
+Outcome philosophy — prefer verification when evidence substantially satisfies:
+- Minor cosmetic issues, slight angle differences, or small uncaptured details
+  should NOT block verification. Use VERIFIED_WITH_NOTES for these.
+- Reserve REJECTED for clear failure to meet criteria or confirmed manipulation.
+- Reserve UNDETERMINED only for genuinely impossible-to-judge cases (extremely rare).
 
 Required JSON schema:
 {
-  "outcome": "ACCEPT | REQUEST_REVISION | INSUFFICIENT_EVIDENCE | POSSIBLE_MISMATCH | POSSIBLE_MANIPULATION | ESCALATE_TO_HUMAN",
+  "outcome": "VERIFIED | VERIFIED_WITH_NOTES | REVISION_REQUIRED | INSUFFICIENT_EVIDENCE | REJECTED | ESCALATED | UNDETERMINED",
   "confidence": number between 0 and 1,
   "visualContinuity": "LIKELY_SAME_SITE | UNCLEAR | LIKELY_DIFFERENT_SITE",
   "taskCompletion": "COMPLETE | PARTIAL | NOT_SHOWN | UNCLEAR",
@@ -149,16 +152,17 @@ Required JSON schema:
   "criteriaUnclear": [string],
   "riskFlags": [string],
   "reasoning": string,
-  "recommendedAction": "confirm_milestone | keep_pending | request_more_evidence | escalate"
+  "recommendedAction": "confirm_milestone | keep_pending | request_revision | request_more_evidence | escalate"
 }
 
 Decision guide:
-- ACCEPT only if the after evidence clearly satisfies the material acceptance criteria and continuity is not seriously doubtful.
-- REQUEST_REVISION if some work appears done but evidence is incomplete, unclear, or missing important angles/details.
-- INSUFFICIENT_EVIDENCE if the task cannot be judged from the submitted evidence.
-- POSSIBLE_MISMATCH if before and after evidence may not show the same place, object, item, or work area.
-- POSSIBLE_MANIPULATION if evidence appears staged, edited, inconsistent, or suspicious.
-- ESCALATE_TO_HUMAN if the task requires human inspection, regulated judgement, safety/legal confirmation, or the evidence conflict cannot be resolved visually.
+- VERIFIED: The after evidence clearly and substantially satisfies the acceptance criteria. Continuity is not seriously doubtful.
+- VERIFIED_WITH_NOTES: The evidence substantially satisfies criteria but has minor observations worth noting (cosmetic issues, slight angle differences, minor uncaptured details). This is still a positive outcome — the work is accepted.
+- REVISION_REQUIRED: Some work appears done but evidence is incomplete, unclear, or missing important angles/details needed to judge.
+- INSUFFICIENT_EVIDENCE: The task cannot be judged from the submitted evidence at all.
+- REJECTED: The evidence clearly fails to meet the criteria, or manipulation/staging is confirmed.
+- ESCALATED: The task requires human inspection, regulated judgement, safety/legal confirmation, or the evidence conflict cannot be resolved visually.
+- UNDETERMINED: Genuinely impossible to judge — use only as an extreme last resort.
 """
 
 
@@ -247,8 +251,9 @@ def _review_equivalence_principle():
     return (
         "Two CertaFrame visual review outputs are equivalent if they agree on "
         "the same outcome, visualContinuity, taskCompletion, and recommendedAction. "
+        "VERIFIED and VERIFIED_WITH_NOTES are considered equivalent positive outcomes. "
         "They must both avoid legal, safety, compliance, or authenticity guarantees, "
-        "and must only judge whether the submitted evidence reasonably supports the "
+        "and must only judge whether the submitted evidence substantially supports the "
         "task completion claim. Exact wording of reasoning, riskFlags, and criteria "
         "arrays does not need to match."
     )
@@ -260,12 +265,13 @@ def _empty_stats():
         "proofs": 0,
         "reviews": 0,
         "disputes": 0,
-        "accept": 0,
+        "verified": 0,
+        "verified_with_notes": 0,
         "revision": 0,
         "insufficient": 0,
-        "mismatch": 0,
-        "manipulation": 0,
+        "rejected": 0,
         "escalate": 0,
+        "undetermined": 0,
         "keepers": 0,
     })
 
@@ -531,7 +537,7 @@ class CertaFrameVerifier(gl.Contract):
         outcome = resolution.get("outcome", "")
         if outcome == "ACCEPT_PROOF":
             proof["status"] = "REVIEWED"
-            proof["verdict_outcome"] = "ACCEPT"
+            proof["verdict_outcome"] = "VERIFIED"
             contract["status"] = "ACCEPTED"
         elif outcome == "REJECT_PROOF":
             contract["status"] = "REVISION_REQUESTED"
@@ -870,26 +876,28 @@ class CertaFrameVerifier(gl.Contract):
         _require(_is_nonempty_str(v["reasoning"]), "reasoning_must_be_non_empty_string")
         outcome = v["outcome"]
         action = v["recommendedAction"]
-        if outcome == "ACCEPT":
-            _require(action == "confirm_milestone", "accept_must_confirm_milestone")
-        if outcome in ("REQUEST_REVISION", "INSUFFICIENT_EVIDENCE"):
-            _require(action in ("request_more_evidence", "keep_pending"), "revision_or_evidence_outcome_must_keep_pending_or_request_evidence")
-        if outcome in ("POSSIBLE_MISMATCH", "POSSIBLE_MANIPULATION", "ESCALATE_TO_HUMAN"):
-            _require(action == "escalate", "risk_or_escalation_outcome_must_escalate")
+        if outcome in ("VERIFIED", "VERIFIED_WITH_NOTES"):
+            _require(action == "confirm_milestone", "verified_must_confirm_milestone")
+        if outcome == "REVISION_REQUIRED":
+            _require(action in ("request_revision", "request_more_evidence", "keep_pending"), "revision_required_must_request_revision_or_evidence")
+        if outcome == "INSUFFICIENT_EVIDENCE":
+            _require(action in ("request_more_evidence", "keep_pending"), "insufficient_evidence_must_request_evidence_or_keep_pending")
+        if outcome in ("REJECTED", "ESCALATED", "UNDETERMINED"):
+            _require(action == "escalate", "rejected_escalated_undetermined_must_escalate")
 
     def _contract_status_from_verdict(self, verdict):
         outcome = verdict.get("outcome", "")
-        if outcome == "ACCEPT":
+        if outcome in ("VERIFIED", "VERIFIED_WITH_NOTES"):
             return "ACCEPTED"
-        if outcome == "REQUEST_REVISION":
+        if outcome == "REVISION_REQUIRED":
             return "REVISION_REQUESTED"
         if outcome == "INSUFFICIENT_EVIDENCE":
             return "INSUFFICIENT_EVIDENCE"
-        if outcome == "POSSIBLE_MISMATCH":
-            return "MISMATCH_RISK"
-        if outcome == "POSSIBLE_MANIPULATION":
-            return "MANIPULATION_RISK"
-        if outcome == "ESCALATE_TO_HUMAN":
+        if outcome == "REJECTED":
+            return "REVISION_REQUESTED"
+        if outcome == "ESCALATED":
+            return "ESCALATED"
+        if outcome == "UNDETERMINED":
             return "ESCALATED"
         return "ESCALATED"
 
@@ -957,12 +965,13 @@ class CertaFrameVerifier(gl.Contract):
 
     def _bump_outcome(self, outcome):
         mapping = {
-            "ACCEPT": "accept",
-            "REQUEST_REVISION": "revision",
+            "VERIFIED": "verified",
+            "VERIFIED_WITH_NOTES": "verified_with_notes",
+            "REVISION_REQUIRED": "revision",
             "INSUFFICIENT_EVIDENCE": "insufficient",
-            "POSSIBLE_MISMATCH": "mismatch",
-            "POSSIBLE_MANIPULATION": "manipulation",
-            "ESCALATE_TO_HUMAN": "escalate",
+            "REJECTED": "rejected",
+            "ESCALATED": "escalate",
+            "UNDETERMINED": "undetermined",
         }
         key = mapping.get(outcome, "")
         if key != "":

@@ -7,7 +7,7 @@ import { fetchProof, fetchContract, fetchReview, fetchDispute, fetchDisputeResol
 import { getProof as getCachedProof } from "@/src/lib/storage";
 import { BeforeAfterFrame } from "@/components/BeforeAfterFrame";
 import { VerdictLens } from "@/components/VerdictLens";
-import { GENLAYER_STUDIONET, isContractConfigured } from "@/src/lib/genlayer/config";
+import { getGenlayerExplorerTxUrl, isContractConfigured } from "@/src/lib/genlayer/config";
 import { writeAndWait } from "@/src/lib/genlayer/client";
 
 function extractResolutionFromReceipt(receipt: any): any | null {
@@ -225,7 +225,7 @@ export default function Page() {
           )}
           {p.reviewTxHash && (
             <div className="hash-strip">
-              review tx: <a href={`${GENLAYER_STUDIONET.explorerUrl}/tx/${p.reviewTxHash}`} target="_blank" className="text-cyan2">{p.reviewTxHash}</a>
+              review tx: <a href={getGenlayerExplorerTxUrl(p.reviewTxHash)} target="_blank" className="text-cyan2">{p.reviewTxHash}</a>
             </div>
           )}
           {p.disputeTxHash && (
@@ -359,7 +359,6 @@ export default function Page() {
           verdict={p.verdict || { outcome: p.onchainVerdictOutcome, recommendedAction: p.onchainVerdictAction }}
           proofHash={p.envelopeHash}
           txHash={r?.txHash || p.reviewTxHash}
-          explorerUrl={(r?.txHash || p.reviewTxHash) ? `${GENLAYER_STUDIONET.explorerUrl}/tx/${r?.txHash || p.reviewTxHash}` : undefined}
         />
       ) : (
         <div className="glass-panel">

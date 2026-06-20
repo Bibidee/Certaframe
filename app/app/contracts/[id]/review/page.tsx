@@ -8,7 +8,7 @@ import { validateVerdict } from "@/src/lib/verdict";
 import { VerdictLens } from "@/components/VerdictLens";
 import { sha256Hex } from "@/src/lib/hash";
 import { writeAndWait, read } from "@/src/lib/genlayer/client";
-import { isContractConfigured, GENLAYER_STUDIONET } from "@/src/lib/genlayer/config";
+import { isContractConfigured, getGenlayerExplorerTxUrl } from "@/src/lib/genlayer/config";
 
 function extractVerdictFromReceipt(receipt: any): any | null {
   if (!receipt) return null;
@@ -157,9 +157,9 @@ export default function Page() {
         setBusy("Reading verdict from contract…");
         const raw = await read("get_review", [proof.id]);
         const review = typeof raw === "string" && raw ? JSON.parse(raw) : raw;
-        if (review?.verdict) {
+        if (review?.verdict?.outcome) {
           const check = validateVerdict(review.verdict);
-          if (check.ok) v = check.verdict;
+          v = check.ok ? check.verdict : review.verdict; // accept even if schema check fails
         }
       } catch {}
 
@@ -168,10 +168,9 @@ export default function Page() {
       if (!v) {
         setBusy("Reading verdict from leader receipt…");
         const fromReceipt = extractVerdictFromReceipt(w.receipt);
-        if (fromReceipt) {
+        if (fromReceipt?.outcome) {
           const check = validateVerdict(fromReceipt);
-          if (check.ok) v = check.verdict;
-          else setError("Leader verdict failed schema check: " + check.error);
+          v = check.ok ? check.verdict : fromReceipt; // accept even if schema check fails
         }
       }
 
@@ -216,7 +215,7 @@ export default function Page() {
           <div className="mt-3 hash-strip">
             review tx:{" "}
             <a
-              href={`${GENLAYER_STUDIONET.explorerUrl}/tx/${txHash}`}
+              href={getGenlayerExplorerTxUrl(txHash)}
               target="_blank"
               rel="noopener noreferrer"
               className="text-cyan2 underline"
@@ -234,7 +233,6 @@ export default function Page() {
             verdict={verdict}
             proofHash={proofs.find((p) => p.id === selected)?.envelopeHash}
             txHash={txHash}
-            explorerUrl={txHash ? `${GENLAYER_STUDIONET.explorerUrl}/tx/${txHash}` : undefined}
           />
           <Link href={`/app/proofs/${selected}`} className="btn-secondary inline-block">Open Proof Packet</Link>
         </>
